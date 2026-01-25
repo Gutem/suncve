@@ -1,0 +1,100 @@
+{
+  "common": {
+    "search": "Buscar...",
+    "theme": "Tema",
+    "language": "Idioma",
+    "selectTheme": "Selecione um tema",
+    "selectLanguage": "Selecione um idioma",
+    "default": "Padrão",
+    "scaled": "Escalonado",
+    "monospace": "Monospace"
+  },
+  "sidebar": {
+    "menu": "Menu",
+    "dashboard": "Dashboard"
+  },
+  "dashboard": {
+    "welcome": "Olá, Bem-vindo de volta 👋",
+    "totalRevenue": "Receita Total",
+    "newCustomers": "Novos Clientes",
+    "activeAccounts": "Contas Ativas",
+    "growthRate": "Taxa de Crescimento",
+    "trendingUp": "Tendência de alta este mês",
+    "trendingDown": "Queda de 20% neste período",
+    "strongRetention": "Forte retenção de usuários",
+    "steadyGrowth": "Aumento constante de desempenho",
+    "visitorsLast6Months": "Visitantes dos últimos 6 meses",
+    "acquisitionNeedsAttention": "Aquisição precisa de atenção",
+    "engagementExceedsTargets": "Engajamento excede as metas",
+    "meetsGrowthProjections": "Atende às projeções de crescimento"
+  },
+  "charts": {
+    "barChart": "Gráfico de Barras - Interativo",
+    "barChartDescription": "Total dos últimos 3 meses",
+    "areaChart": "Gráfico de Área - Empilhado",
+    "areaChartDescription": "Mostrando total de visitantes dos últimos 6 meses",
+    "areaChartTrending": "Tendência de alta de 5.2% este mês",
+    "areaChartPeriod": "Janeiro - Junho 2024",
+    "pieChart": "Gráfico de Pizza - Donut com Texto",
+    "pieChartDescription": "Distribuição de navegadores",
+    "pieChartTrending": "Chrome lidera com 24.4%",
+    "pieChartPeriod": "Baseado em dados de Janeiro - Junho 2024",
+    "recentSales": "Vendas Recentes",
+    "recentSalesDescription": "Você fez 265 vendas este mês.",
+    "visitors": "Visitantes",
+    "desktop": "Desktop",
+    "mobile": "Mobile",
+    "january": "Janeiro",
+    "february": "Fevereiro",
+    "march": "Março",
+    "april": "Abril",
+    "may": "Maio",
+    "june": "Junho"
+  },
+  "themes": {
+    "default": "Padrão",
+    "blue": "Azul",
+    "green": "Verde",
+    "amber": "Âmbar",
+    "defaultScaled": "Padrão Escalonado",
+    "blueScaled": "Azul Escalonado",
+    "mono": "Mono"
+  },
+  "tour": {
+    "startTour": "Iniciar tour guiado",
+    "buttons": {
+      "next": "Próximo",
+      "prev": "Anterior",
+      "done": "Concluir",
+      "progressOf": "de"
+    },
+    "sidebar": {
+      "title": "Menu de Navegação",
+      "description": "Aqui você encontra todas as seções do sistema. Clique nos itens para navegar entre as páginas."
+    },
+    "search": {
+      "title": "Busca Rápida",
+      "description": "Use a busca para encontrar rapidamente o que procura. Atalho: ⌘K ou Ctrl+K"
+    },
+    "themeToggle": {
+      "title": "Modo Claro/Escuro",
+      "description": "Alterne entre o modo claro e escuro conforme sua preferência."
+    },
+    "statsCards": {
+      "title": "Cards de Estatísticas",
+      "description": "Visualize as métricas principais do seu negócio de forma rápida e intuitiva."
+    },
+    "charts": {
+      "title": "Gráficos Interativos",
+      "description": "Analise seus dados através de gráficos interativos. Passe o mouse para ver detalhes."
+    },
+    "language": {
+      "title": "Idioma",
+      "description": "Altere o idioma da interface entre Português e Inglês."
+    },
+    "themeSelector": {
+      "title": "Seletor de Tema",
+      "description": "Personalize a aparência do sistema escolhendo entre diferentes temas de cores."
+    }
+  }
+}
