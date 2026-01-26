@@ -181,3 +181,67 @@ export interface CVEReference {
 export interface ParsedLanguages {
   [language: string]: number; // percentage
 }
+
+// Repository Search Types
+
+export interface RepositorySearchFilters {
+  query: string;
+  languages: string[];
+  starsMin: number | null;
+  starsMax: number | null;
+  sizeMin: number | null;
+  sizeMax: number | null;
+  hasCVEs: boolean | null;
+  hasCommitFix: boolean | null;
+}
+
+export const defaultRepositoryFilters: RepositorySearchFilters = {
+  query: '',
+  languages: [],
+  starsMin: null,
+  starsMax: null,
+  sizeMin: null,
+  sizeMax: null,
+  hasCVEs: null,
+  hasCommitFix: null
+};
+
+export interface RepositorySearchResult {
+  fullpath: string;
+  name: string | null;
+  stars: number | null;
+  size: number | null;
+  languageMain: string | null;
+  cve_count: number;
+  commits_fix_count: number | null;
+  created_repository: string | null;
+  updated_repository: string | null;
+}
+
+export interface RepositorySearchResultsPage {
+  results: RepositorySearchResult[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export type RepositorySortField =
+  | 'fullpath'
+  | 'name'
+  | 'stars'
+  | 'size'
+  | 'cve_count'
+  | 'commits_fix_count'
+  | 'created_repository'
+  | 'updated_repository';
+
+export interface RepositorySortConfig {
+  field: RepositorySortField;
+  order: SortOrder;
+}
+
+export interface RepositoryWithCVEs extends Repository {
+  cves: CVESearchResult[];
+  cve_count: number;
+}

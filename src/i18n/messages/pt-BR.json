@@ -12,7 +12,8 @@
   "sidebar": {
     "menu": "Menu",
     "dashboard": "Dashboard",
-    "cveSearch": "Busca de CVE"
+    "cveSearch": "Busca de CVE",
+    "repositorySearch": "Busca de Repositório"
   },
   "dashboard": {
     "welcome": "Olá, Bem-vindo de volta 👋",
@@ -213,6 +214,68 @@
       "more": "mais",
       "copyLink": "Copiar Link",
       "copied": "Copiado!"
+    }
+  },
+  "repositories": {
+    "title": "Busca de Repositório",
+    "description": "Pesquise e filtre repositórios GitHub vinculados a vulnerabilidades",
+    "searchPlaceholder": "Buscar por nome de repositório, caminho...",
+    "stats": {
+      "totalRepos": "Total de Repositórios",
+      "withCVEs": "Com CVEs",
+      "withCommitFix": "Com Commit Fix",
+      "topLanguage": "Linguagem Principal",
+      "repositories": "Repositórios GitHub",
+      "inDatabase": "No banco de vulnerabilidades",
+      "linkedCVEs": "Com CVEs vinculadas",
+      "vulnerableRepos": "Repositórios com vulnerabilidades",
+      "patchCommits": "Commits de correção",
+      "withFixes": "Repositórios com commits de fix",
+      "noData": "Sem dados",
+      "mostUsed": "Linguagem mais usada"
+    },
+    "filters": {
+      "title": "Filtros",
+      "clearAll": "Limpar Tudo",
+      "language": "Linguagem",
+      "selectLanguage": "Selecionar Linguagem...",
+      "searchLanguage": "Buscar linguagem...",
+      "noLanguageFound": "Nenhuma linguagem encontrada",
+      "stars": "Stars",
+      "size": "Tamanho",
+      "flags": "Flags",
+      "hasCVEs": "Com CVEs",
+      "hasCommitFix": "Com Commit Fix",
+      "selected": "selecionados"
+    },
+    "table": {
+      "repository": "Repositório",
+      "stars": "Stars",
+      "language": "Linguagem",
+      "cves": "CVEs",
+      "fixes": "Fixes",
+      "size": "Tamanho",
+      "updated": "Atualizado",
+      "noResults": "Nenhum repositório encontrado",
+      "tryDifferentFilters": "Tente ajustar os filtros ou termo de busca",
+      "showing": "Mostrando {from} até {to} de {total} resultados"
+    },
+    "detail": {
+      "stars": "Stars",
+      "cves": "CVEs",
+      "fixes": "Fixes",
+      "size": "Tamanho",
+      "repoInfo": "Informações do Repositório",
+      "mainLanguage": "Linguagem Principal",
+      "languages": "Linguagens",
+      "tags": "Tags",
+      "created": "Criado",
+      "updated": "Atualizado",
+      "relatedCVEs": "CVEs Relacionadas",
+      "cveId": "CVE ID",
+      "score": "Score",
+      "flags": "Flags",
+      "published": "Publicado"
     }
   }
 }

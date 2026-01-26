@@ -12,7 +12,8 @@
   "sidebar": {
     "menu": "Menu",
     "dashboard": "Dashboard",
-    "cveSearch": "CVE Search"
+    "cveSearch": "CVE Search",
+    "repositorySearch": "Repository Search"
   },
   "dashboard": {
     "welcome": "Hi, Welcome back 👋",
@@ -209,6 +210,68 @@
       "more": "more",
       "copyLink": "Copy Link",
       "copied": "Copied!"
+    }
+  },
+  "repositories": {
+    "title": "Repository Search",
+    "description": "Search and filter GitHub repositories linked to vulnerabilities",
+    "searchPlaceholder": "Search by repository name, path...",
+    "stats": {
+      "totalRepos": "Total Repositories",
+      "withCVEs": "With CVEs",
+      "withCommitFix": "With Commit Fix",
+      "topLanguage": "Top Language",
+      "repositories": "GitHub repositories",
+      "inDatabase": "In the vulnerability database",
+      "linkedCVEs": "With linked CVEs",
+      "vulnerableRepos": "Repositories with vulnerabilities",
+      "patchCommits": "Patch commits",
+      "withFixes": "Repositories with fix commits",
+      "noData": "No data",
+      "mostUsed": "Most used language"
+    },
+    "filters": {
+      "title": "Filters",
+      "clearAll": "Clear All",
+      "language": "Language",
+      "selectLanguage": "Select Language...",
+      "searchLanguage": "Search language...",
+      "noLanguageFound": "No language found",
+      "stars": "Stars",
+      "size": "Size",
+      "flags": "Flags",
+      "hasCVEs": "Has CVEs",
+      "hasCommitFix": "Has Commit Fix",
+      "selected": "selected"
+    },
+    "table": {
+      "repository": "Repository",
+      "stars": "Stars",
+      "language": "Language",
+      "cves": "CVEs",
+      "fixes": "Fixes",
+      "size": "Size",
+      "updated": "Updated",
+      "noResults": "No repositories found",
+      "tryDifferentFilters": "Try adjusting your filters or search term",
+      "showing": "Showing {from} to {to} of {total} results"
+    },
+    "detail": {
+      "stars": "Stars",
+      "cves": "CVEs",
+      "fixes": "Fixes",
+      "size": "Size",
+      "repoInfo": "Repository Info",
+      "mainLanguage": "Main Language",
+      "languages": "Languages",
+      "tags": "Tags",
+      "created": "Created",
+      "updated": "Updated",
+      "relatedCVEs": "Related CVEs",
+      "cveId": "CVE ID",
+      "score": "Score",
+      "flags": "Flags",
+      "published": "Published"
     }
   }
 }

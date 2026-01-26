@@ -12,14 +12,17 @@ interface SearchBarProps {
   filters: SearchFilters;
   onFiltersChange: (filters: SearchFilters) => void;
   isSearching?: boolean;
+  placeholder?: string;
 }
 
 export function SearchBar({
   filters,
   onFiltersChange,
-  isSearching = false
+  isSearching = false,
+  placeholder
 }: SearchBarProps) {
   const t = useTranslations('search');
+  const placeholderText = placeholder ?? t('searchPlaceholder');
   const [inputValue, setInputValue] = useState(filters.query);
 
   // Update filters immediately when input changes
@@ -59,7 +62,7 @@ export function SearchBar({
       </div>
       <Input
         type='text'
-        placeholder={t('searchPlaceholder')}
+        placeholder={placeholderText}
         value={inputValue}
         onChange={(e) => handleInputChange(e.target.value)}
         className={cn(

@@ -19,5 +19,13 @@ export const navItems: NavItem[] = [
     isActive: false,
     shortcut: ['c', 's'],
     items: []
+  },
+  {
+    title: 'Repository Search',
+    url: '/dashboard/repositories',
+    icon: 'github',
+    isActive: false,
+    shortcut: ['r', 's'],
+    items: []
   }
 ];
