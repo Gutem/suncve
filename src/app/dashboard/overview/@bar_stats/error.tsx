@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useTransition } from 'react';
-import * as Sentry from '@sentry/nextjs';
 
 interface StatsErrorProps {
   error: Error;
@@ -17,7 +16,8 @@ export default function StatsError({ error, reset }: StatsErrorProps) {
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    Sentry.captureException(error);
+    // Log error to console for debugging
+    console.error('Stats error:', error);
   }, [error]);
 
   // the reload fn ensures the refresh is deffered  until the next render phase allowing react to handle any pending states before processing

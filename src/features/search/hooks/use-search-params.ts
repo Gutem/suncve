@@ -1,0 +1,234 @@
+'use client';
+
+import {
+  useQueryStates,
+  parseAsString,
+  parseAsFloat,
+  parseAsArrayOf,
+  parseAsStringLiteral,
+  parseAsBoolean,
+  parseAsInteger
+} from 'nuqs';
+import { useCallback, useMemo } from 'react';
+import type {
+  SearchFilters,
+  SortConfig,
+  SortField,
+  SortOrder,
+  Severity
+} from '../types';
+import { defaultFilters } from '../types';
+
+// Define severity options for parser
+const severityOptions = ['critical', 'high', 'medium', 'low', 'none'] as const;
+const sortFieldOptions = [
+  'cve_id',
+  'date_published',
+  'date_updated',
+  'score',
+  'stars',
+  'created_repository',
+  'updated_repository'
+] as const;
+const sortOrderOptions = ['asc', 'desc'] as const;
+
+// Custom parser for nullable boolean
+const parseAsNullableBoolean = {
+  parse: (value: string) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return null;
+  },
+  serialize: (value: boolean | null) => {
+    if (value === null) return '';
+    return value ? 'true' : 'false';
+  }
+};
+
+// Custom parser for nullable number
+const parseAsNullableInt = {
+  parse: (value: string) => {
+    const num = parseInt(value, 10);
+    return isNaN(num) ? null : num;
+  },
+  serialize: (value: number | null) => {
+    return value === null ? '' : value.toString();
+  }
+};
+
+// URL search params configuration
+const searchParamsConfig = {
+  // Search query
+  q: parseAsString.withDefault(''),
+
+  // CVSS score range
+  cvssMin: parseAsFloat.withDefault(0),
+  cvssMax: parseAsFloat.withDefault(10),
+
+  // Severity filter (comma-separated)
+  severity: parseAsArrayOf(parseAsStringLiteral(severityOptions)).withDefault(
+    []
+  ),
+
+  // CWE filter (comma-separated)
+  cwes: parseAsArrayOf(parseAsString).withDefault([]),
+
+  // Boolean filters
+  exploit: parseAsNullableBoolean,
+  repo: parseAsNullableBoolean,
+  commit: parseAsNullableBoolean,
+
+  // Language filter (comma-separated)
+  lang: parseAsArrayOf(parseAsString).withDefault([]),
+
+  // Stars range
+  starsMin: parseAsNullableInt,
+  starsMax: parseAsNullableInt,
+
+  // Repo size range
+  sizeMin: parseAsNullableInt,
+  sizeMax: parseAsNullableInt,
+
+  // Sorting
+  sort: parseAsStringLiteral(sortFieldOptions).withDefault('date_published'),
+  order: parseAsStringLiteral(sortOrderOptions).withDefault('desc'),
+
+  // Pagination
+  page: parseAsInteger.withDefault(1)
+};
+
+export function useSearchParams() {
+  const [params, setParams] = useQueryStates(searchParamsConfig, {
+    history: 'push',
+    shallow: true
+  });
+
+  // Convert URL params to SearchFilters
+  const filters: SearchFilters = useMemo(
+    () => ({
+      query: params.q,
+      cvssMin: params.cvssMin,
+      cvssMax: params.cvssMax,
+      severity: params.severity as Severity[],
+      cwes: params.cwes.filter(Boolean),
+      hasExploit: params.exploit,
+      hasRepository: params.repo,
+      hasCommitFix: params.commit,
+      languages: params.lang.filter(Boolean),
+      starsMin: params.starsMin,
+      starsMax: params.starsMax,
+      repoSizeMin: params.sizeMin,
+      repoSizeMax: params.sizeMax
+    }),
+    [params]
+  );
+
+  // Convert URL params to SortConfig
+  const sort: SortConfig = useMemo(
+    () => ({
+      field: params.sort as SortField,
+      order: params.order as SortOrder
+    }),
+    [params.sort, params.order]
+  );
+
+  // Current page
+  const page = params.page;
+
+  // Update filters
+  const setFilters = useCallback(
+    (newFilters: SearchFilters) => {
+      setParams({
+        q: newFilters.query || null,
+        cvssMin: newFilters.cvssMin === 0 ? null : newFilters.cvssMin,
+        cvssMax: newFilters.cvssMax === 10 ? null : newFilters.cvssMax,
+        severity: newFilters.severity.length > 0 ? newFilters.severity : null,
+        cwes: newFilters.cwes.length > 0 ? newFilters.cwes : null,
+        exploit: newFilters.hasExploit,
+        repo: newFilters.hasRepository,
+        commit: newFilters.hasCommitFix,
+        lang: newFilters.languages.length > 0 ? newFilters.languages : null,
+        starsMin: newFilters.starsMin,
+        starsMax: newFilters.starsMax,
+        sizeMin: newFilters.repoSizeMin,
+        sizeMax: newFilters.repoSizeMax,
+        // Reset page when filters change
+        page: 1
+      });
+    },
+    [setParams]
+  );
+
+  // Update sort
+  const setSort = useCallback(
+    (newSort: SortConfig) => {
+      setParams({
+        sort: newSort.field === 'date_published' ? null : newSort.field,
+        order: newSort.order === 'desc' ? null : newSort.order,
+        // Reset page when sort changes
+        page: 1
+      });
+    },
+    [setParams]
+  );
+
+  // Update page
+  const setPage = useCallback(
+    (newPage: number) => {
+      setParams({ page: newPage === 1 ? null : newPage });
+    },
+    [setParams]
+  );
+
+  // Reset all filters
+  const resetFilters = useCallback(() => {
+    setParams({
+      q: null,
+      cvssMin: null,
+      cvssMax: null,
+      severity: null,
+      cwes: null,
+      exploit: null,
+      repo: null,
+      commit: null,
+      lang: null,
+      starsMin: null,
+      starsMax: null,
+      sizeMin: null,
+      sizeMax: null,
+      sort: null,
+      order: null,
+      page: null
+    });
+  }, [setParams]);
+
+  // Check if filters are at default values
+  const hasActiveFilters = useMemo(() => {
+    return (
+      filters.query !== '' ||
+      filters.cvssMin !== 0 ||
+      filters.cvssMax !== 10 ||
+      filters.severity.length > 0 ||
+      filters.cwes.length > 0 ||
+      filters.hasExploit !== null ||
+      filters.hasRepository !== null ||
+      filters.hasCommitFix !== null ||
+      filters.languages.length > 0 ||
+      filters.starsMin !== null ||
+      filters.starsMax !== null ||
+      filters.repoSizeMin !== null ||
+      filters.repoSizeMax !== null
+    );
+  }, [filters]);
+
+  return {
+    filters,
+    sort,
+    page,
+    setFilters,
+    setSort,
+    setPage,
+    resetFilters,
+    hasActiveFilters
+  };
+}

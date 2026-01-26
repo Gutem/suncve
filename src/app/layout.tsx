@@ -4,11 +4,11 @@ import { fontVariables } from '@/lib/font';
 import ThemeProvider from '@/components/layout/ThemeToggle/theme-provider';
 import { cn } from '@/lib/utils';
 import type { Metadata, Viewport } from 'next';
-import { cookies } from 'next/headers';
 import NextTopLoader from 'nextjs-toploader';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
-import { NextIntlClientProvider } from 'next-intl';
-import { getLocale, getMessages } from 'next-intl/server';
+import { LocaleSwitcher } from '@/components/locale-switcher';
+import { defaultLocale } from '@/i18n/config';
+import ptBRMessages from '@/i18n/messages/pt-BR.json';
 import './globals.css';
 import './theme.css';
 import './tour.css';
@@ -32,12 +32,10 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = await cookies();
-  const activeThemeValue = cookieStore.get('active_theme')?.value;
-  const isScaled = activeThemeValue?.endsWith('-scaled');
-
-  const locale = await getLocale();
-  const messages = await getMessages();
+  // For static export, always use default locale on server
+  // Client-side LocaleSwitcher will handle locale switching
+  const locale = defaultLocale;
+  const messages = ptBRMessages;
 
   return (
     <html lang={locale} suppressHydrationWarning>
@@ -46,6 +44,7 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               try {
+                // Theme color
                 if (localStorage.theme === 'dark' || ((!('theme' in localStorage) || localStorage.theme === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
                   document.querySelector('meta[name="theme-color"]').setAttribute('content', '${META_THEME_COLORS.dark}')
                 }
@@ -57,14 +56,15 @@ export default async function RootLayout({
       <body
         className={cn(
           'bg-background overflow-hidden overscroll-none font-sans antialiased',
-          activeThemeValue ? `theme-${activeThemeValue}` : '',
-          isScaled ? 'theme-scaled' : '',
           fontVariables
         )}
       >
         <NextTopLoader color='var(--primary)' showSpinner={false} />
         <NuqsAdapter>
-          <NextIntlClientProvider messages={messages}>
+          <LocaleSwitcher
+            serverMessages={messages as Record<string, unknown>}
+            serverLocale={locale as 'pt-BR' | 'en'}
+          >
             <ThemeProvider
               attribute='class'
               defaultTheme='system'
@@ -72,12 +72,12 @@ export default async function RootLayout({
               disableTransitionOnChange
               enableColorScheme
             >
-              <Providers activeThemeValue={activeThemeValue as string}>
+              <Providers>
                 <Toaster />
                 {children}
               </Providers>
             </ThemeProvider>
-          </NextIntlClientProvider>
+          </LocaleSwitcher>
         </NuqsAdapter>
       </body>
     </html>

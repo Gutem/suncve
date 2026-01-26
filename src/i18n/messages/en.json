@@ -11,7 +11,8 @@
   },
   "sidebar": {
     "menu": "Menu",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "cveSearch": "CVE Search"
   },
   "dashboard": {
     "welcome": "Hi, Welcome back 👋",
@@ -62,6 +63,7 @@
   },
   "tour": {
     "startTour": "Start guided tour",
+    "loading": "Loading page...",
     "buttons": {
       "next": "Next",
       "prev": "Previous",
@@ -71,6 +73,14 @@
     "sidebar": {
       "title": "Navigation Menu",
       "description": "Here you'll find all system sections. Click on items to navigate between pages."
+    },
+    "navDashboard": {
+      "title": "Dashboard",
+      "description": "Access the main panel with an overview of vulnerability statistics and charts."
+    },
+    "navCveSearch": {
+      "title": "CVE Search",
+      "description": "Access the advanced search tool to find and filter specific vulnerabilities."
     },
     "search": {
       "title": "Quick Search",
@@ -95,6 +105,110 @@
     "themeSelector": {
       "title": "Theme Selector",
       "description": "Customize the system appearance by choosing from different color themes."
+    },
+    "cveSearch": {
+      "title": "CVE Search",
+      "description": "Search for vulnerabilities by CVE ID, vendor, product, or keywords in the description."
+    },
+    "cveFilters": {
+      "title": "Advanced Filters",
+      "description": "Refine your search using severity, CVSS score, CWE, programming language filters and more."
+    },
+    "cveStats": {
+      "title": "Search Statistics",
+      "description": "View result metrics: total CVEs, linked repositories, available exploits and fixes."
+    },
+    "cveResults": {
+      "title": "Search Results",
+      "description": "List of found CVEs. Click a row to see full details. Use headers to sort."
+    },
+    "cveDetails": {
+      "title": "CVE Details",
+      "description": "See complete information: CVSS scores, CWEs, affected products, repositories, exploits and fix commits."
+    },
+    "cveCopyLink": {
+      "title": "Share CVE",
+      "description": "Copy the direct link to this CVE and share it with your team."
+    }
+  },
+  "search": {
+    "title": "CVE Search",
+    "description": "Search and filter vulnerabilities by CVE, vendor, product, and more",
+    "searchPlaceholder": "Search by CVE, vendor, product, description...",
+    "loader": {
+      "title": "Loading Database",
+      "downloading": "Downloading vulnerability database...",
+      "initializing": "Initializing database...",
+      "complete": "complete",
+      "firstTimeNote": "First load may take a few minutes. Data will be cached locally.",
+      "errorTitle": "Error Loading Database",
+      "retry": "Try Again"
+    },
+    "stats": {
+      "totalCVEs": "Total CVEs",
+      "repositories": "Repositories",
+      "withExploit": "With Exploit",
+      "withCommitFix": "With Commit Fix",
+      "vulnerabilities": "Known vulnerabilities",
+      "inDatabase": "In the vulnerability database",
+      "githubRepos": "GitHub repositories",
+      "linkedToCVEs": "Linked to known CVEs",
+      "exploitAvailable": "Exploits available",
+      "publicExploits": "Public exploit code found",
+      "fixAvailable": "Patches available",
+      "patchCommits": "Known fix commits"
+    },
+    "filters": {
+      "title": "Advanced Filters",
+      "clearAll": "Clear All",
+      "cvssScore": "CVSS Score",
+      "severity": "Severity",
+      "severity_critical": "Critical",
+      "severity_high": "High",
+      "severity_medium": "Medium",
+      "severity_low": "Low",
+      "cwe": "CWE",
+      "selectCWE": "Select CWE...",
+      "searchCWE": "Search CWE...",
+      "noCWEFound": "No CWE found",
+      "flags": "Flags",
+      "hasExploit": "Has Exploit",
+      "hasRepository": "Has Repository",
+      "hasCommitFix": "Has Commit Fix",
+      "language": "Language",
+      "selectLanguage": "Select Language...",
+      "searchLanguage": "Search language...",
+      "noLanguageFound": "No language found",
+      "repoStars": "Repository Stars",
+      "selected": "selected"
+    },
+    "table": {
+      "cveId": "CVE ID",
+      "title": "Title",
+      "score": "Score",
+      "flags": "Flags",
+      "affected": "Affected",
+      "repository": "Repository",
+      "published": "Published",
+      "noResults": "No results found",
+      "tryDifferentFilters": "Try adjusting your filters or search term",
+      "showing": "Showing {from} to {to} of {total} results"
+    },
+    "detail": {
+      "hasExploit": "Exploit",
+      "hasCommitFix": "Fix Available",
+      "published": "Published",
+      "updated": "Updated",
+      "cvssScores": "CVSS Scores",
+      "cwes": "CWEs",
+      "affected": "Affected Products",
+      "repositories": "Related Repositories",
+      "exploits": "Exploits",
+      "commitFixes": "Fix Commits",
+      "references": "References",
+      "more": "more",
+      "copyLink": "Copy Link",
+      "copied": "Copied!"
     }
   }
 }

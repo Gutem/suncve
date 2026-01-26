@@ -27,10 +27,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
 import { Icons } from '../icons';
-import { GalleryVerticalEnd } from 'lucide-react';
 import { ThemeSelectorSidebar } from '../theme-selector-sidebar';
 import { LanguageSelector } from '../language-selector';
 import { useTranslations } from 'next-intl';
+import Image from 'next/image';
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -48,8 +48,14 @@ export default function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size='lg'>
-              <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
-                <GalleryVerticalEnd className='size-4' />
+              <div className='flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg'>
+                <Image
+                  src='/logo.png'
+                  alt='SunCVE Logo'
+                  width={32}
+                  height={32}
+                  className='size-8 object-contain'
+                />
               </div>
               <div className='grid flex-1 text-left text-sm leading-tight'>
                 <span className='truncate font-semibold'>SunCVE</span>
@@ -102,7 +108,16 @@ export default function AppSidebar() {
                   </SidebarMenuItem>
                 </Collapsible>
               ) : (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem
+                  key={item.title}
+                  data-tour={
+                    item.url === '/dashboard/overview'
+                      ? 'nav-dashboard'
+                      : item.url === '/dashboard/search'
+                        ? 'nav-cve-search'
+                        : undefined
+                  }
+                >
                   <SidebarMenuButton
                     asChild
                     tooltip={item.title}

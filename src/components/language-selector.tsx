@@ -11,22 +11,21 @@ import {
 import { SidebarMenuButton, useSidebar } from '@/components/ui/sidebar';
 import { IconLanguage, IconCheck } from '@tabler/icons-react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
-import { useTransition } from 'react';
 import { locales, localeNames, type Locale } from '@/i18n/config';
 
 export function LanguageSelector() {
   const t = useTranslations('common');
   const locale = useLocale();
-  const router = useRouter();
   const { isMobile, state } = useSidebar();
-  const [isPending, startTransition] = useTransition();
 
   const handleLocaleChange = (newLocale: Locale) => {
-    startTransition(() => {
-      document.cookie = `locale=${newLocale}; path=/; max-age=${60 * 60 * 24 * 365}`;
-      router.refresh();
-    });
+    if (newLocale === locale) return;
+
+    // Save to localStorage for persistence
+    localStorage.setItem('locale', newLocale);
+
+    // Force full page reload to apply new locale (LocaleSwitcher will read from localStorage)
+    window.location.reload();
   };
 
   return (
@@ -36,7 +35,6 @@ export function LanguageSelector() {
           size='lg'
           className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
           tooltip={t('language')}
-          disabled={isPending}
           data-tour='language'
         >
           <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
@@ -69,7 +67,6 @@ export function LanguageSelector() {
             key={loc}
             onClick={() => handleLocaleChange(loc)}
             className='gap-2'
-            disabled={isPending}
           >
             {localeNames[loc]}
             {locale === loc && <IconCheck className='ml-auto size-4' />}

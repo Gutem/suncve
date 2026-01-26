@@ -1,18 +1,11 @@
 import { getRequestConfig } from 'next-intl/server';
-import { cookies } from 'next/headers';
-import { defaultLocale, type Locale, locales } from './config';
+import { defaultLocale } from './config';
 
 export default getRequestConfig(async () => {
-  const cookieStore = await cookies();
-  const localeCookie = cookieStore.get('locale')?.value as Locale | undefined;
-
-  const locale =
-    localeCookie && locales.includes(localeCookie)
-      ? localeCookie
-      : defaultLocale;
-
+  // For static export, always use default locale on server
+  // Client-side LocaleSwitcher will handle locale switching
   return {
-    locale,
-    messages: (await import(`./messages/${locale}.json`)).default
+    locale: defaultLocale,
+    messages: (await import(`./messages/${defaultLocale}.json`)).default
   };
 });

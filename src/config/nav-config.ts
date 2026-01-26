@@ -11,5 +11,13 @@ export const navItems: NavItem[] = [
     isActive: false,
     shortcut: ['d', 'd'],
     items: []
+  },
+  {
+    title: 'CVE Search',
+    url: '/dashboard/search',
+    icon: 'search',
+    isActive: false,
+    shortcut: ['c', 's'],
+    items: []
   }
 ];

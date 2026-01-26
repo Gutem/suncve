@@ -1,7 +1,5 @@
 import React from 'react';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Heading } from '../ui/heading';
-import type { InfobarContent } from '@/components/ui/infobar';
 
 function PageSkeleton() {
   return (
@@ -20,13 +18,12 @@ function PageSkeleton() {
 
 export default function PageContainer({
   children,
-  scrollable = true,
+  scrollable: _scrollable = true,
   isloading = false,
   access = true,
   accessFallback,
   pageTitle,
   pageDescription,
-  infoContent,
   pageHeaderAction
 }: {
   children: React.ReactNode;
@@ -36,7 +33,6 @@ export default function PageContainer({
   accessFallback?: React.ReactNode;
   pageTitle?: string;
   pageDescription?: string;
-  infoContent?: InfobarContent;
   pageHeaderAction?: React.ReactNode;
 }) {
   if (!access) {
@@ -53,28 +49,11 @@ export default function PageContainer({
 
   const content = isloading ? <PageSkeleton /> : children;
 
-  return scrollable ? (
-    <ScrollArea className='h-[calc(100dvh-52px)] w-full'>
-      <div className='flex max-w-full flex-1 flex-col overflow-x-hidden p-4 md:px-6'>
-        <div className='mb-4 flex items-start justify-between'>
-          <Heading
-            title={pageTitle ?? ''}
-            description={pageDescription ?? ''}
-            infoContent={infoContent}
-          />
-          {pageHeaderAction && <div>{pageHeaderAction}</div>}
-        </div>
-        {content}
-      </div>
-    </ScrollArea>
-  ) : (
-    <div className='flex max-w-full flex-1 flex-col overflow-x-hidden p-4 md:px-6'>
+  // Scroll is handled by SidebarInset - no need for internal scroll
+  return (
+    <div className='flex min-h-0 flex-1 flex-col p-4 pb-8 md:px-6'>
       <div className='mb-4 flex items-start justify-between'>
-        <Heading
-          title={pageTitle ?? ''}
-          description={pageDescription ?? ''}
-          infoContent={infoContent}
-        />
+        <Heading title={pageTitle ?? ''} description={pageDescription ?? ''} />
         {pageHeaderAction && <div>{pageHeaderAction}</div>}
       </div>
       {content}
