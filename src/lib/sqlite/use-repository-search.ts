@@ -252,7 +252,7 @@ export function useRepositorySearch() {
     return cacheRef.current.filterOptions;
   }, [isReady, executeQuery]);
 
-  // Get repository details with related CVEs
+  // Get repository details (without CVEs - use getRepositoryCVEs for paginated CVEs)
   const getRepositoryDetails = useCallback(
     (fullpath: string) => {
       if (!isReady) return null;
@@ -266,7 +266,42 @@ export function useRepositorySearch() {
       if (result.length === 0) return null;
       const repo = result[0];
 
-      // Get related CVEs with details
+      // Get CVE count
+      const countResult = executeQuery<{ count: number }>(
+        `SELECT COUNT(*) as count FROM cve_repositories WHERE repository_fullpath = ?`,
+        [fullpath]
+      );
+
+      return {
+        ...repo,
+        cves: [] as CVESearchResult[],
+        cve_count: countResult[0]?.count ?? 0
+      };
+    },
+    [isReady, executeQuery]
+  );
+
+  // Get paginated CVEs for a repository
+  const getRepositoryCVEs = useCallback(
+    (
+      fullpath: string,
+      page: number = 1,
+      pageSize: number = 20
+    ): { cves: CVESearchResult[]; total: number; totalPages: number } => {
+      if (!isReady) {
+        return { cves: [], total: 0, totalPages: 0 };
+      }
+
+      const offset = (page - 1) * pageSize;
+
+      // Get total count
+      const countResult = executeQuery<{ count: number }>(
+        `SELECT COUNT(*) as count FROM cve_repositories WHERE repository_fullpath = ?`,
+        [fullpath]
+      );
+      const total = countResult[0]?.count ?? 0;
+
+      // Get paginated CVEs
       const cves = executeQuery<{
         cve_id: string;
         title: string | null;
@@ -293,9 +328,9 @@ export function useRepositorySearch() {
         JOIN cves c ON cr.cve_id = c.cve_id
         WHERE cr.repository_fullpath = ?
         ORDER BY c.date_published DESC
-        LIMIT 100
+        LIMIT ? OFFSET ?
       `,
-        [fullpath]
+        [fullpath, pageSize, offset]
       );
 
       // Map CVEs to CVESearchResult format
@@ -314,14 +349,14 @@ export function useRepositorySearch() {
         product_list: null,
         repo_count: 0,
         repo_fullpath: fullpath,
-        repo_stars: repo.stars as number | null,
-        repo_language: repo.languageMain as string | null
+        repo_stars: null,
+        repo_language: null
       }));
 
       return {
-        ...repo,
         cves: cvesWithSeverity,
-        cve_count: cves.length
+        total,
+        totalPages: Math.ceil(total / pageSize)
       };
     },
     [isReady, executeQuery]
@@ -428,6 +463,7 @@ export function useRepositorySearch() {
     search,
     getFilterOptions,
     getRepositoryDetails,
+    getRepositoryCVEs,
     getStats,
     getFilteredStats,
     isSearching,

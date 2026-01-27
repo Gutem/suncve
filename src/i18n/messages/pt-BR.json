@@ -275,7 +275,11 @@
       "cveId": "CVE ID",
       "score": "Score",
       "flags": "Flags",
-      "published": "Publicado"
+      "published": "Publicado",
+      "page": "Página",
+      "of": "de",
+      "previous": "Anterior",
+      "next": "Próximo"
     }
   }
 }

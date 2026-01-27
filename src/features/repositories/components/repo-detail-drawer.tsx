@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   IconExternalLink,
@@ -14,7 +14,9 @@ import {
   IconBug,
   IconGitCommit,
   IconSkull,
-  IconFolder
+  IconFolder,
+  IconChevronLeft,
+  IconChevronRight
 } from '@tabler/icons-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,7 +54,12 @@ import {
   getSeverityColor,
   type CVESearchResult
 } from '@/features/search/types';
+import { CVEDetailDrawer } from '@/features/search/components/cve-detail-drawer';
+import { useCVESearch } from '@/lib/sqlite/use-cve-search';
+import { useRepositorySearch } from '@/lib/sqlite/use-repository-search';
 import { cn } from '@/lib/utils';
+
+const CVE_PAGE_SIZE = 20;
 
 interface RepoDetailDrawerProps {
   repository: Record<string, unknown> | null;
@@ -67,11 +74,64 @@ export function RepoDetailDrawer({
 }: RepoDetailDrawerProps) {
   const t = useTranslations('repositories.detail');
   const [copied, setCopied] = useState(false);
+  const [selectedCveId, setSelectedCveId] = useState<string | null>(null);
+  const [selectedCve, setSelectedCve] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const { getCVEDetails, isReady: cveSearchReady } = useCVESearch();
+  const { getRepositoryCVEs, isReady: repoSearchReady } = useRepositorySearch();
+
+  // CVE pagination state
+  const [cvePage, setCvePage] = useState(1);
+  const [cves, setCves] = useState<CVESearchResult[]>([]);
+  const [cveTotalPages, setCveTotalPages] = useState(0);
+  const [cveTotal, setCveTotal] = useState(0);
+
+  // Extract repository fields (outside of conditional to avoid hooks order issues)
+  const fullpath = repository?.fullpath as string | undefined;
+  const cveCount = (repository?.cve_count as number) ?? 0;
+
+  // Load CVEs when drawer opens or page changes
+  useEffect(() => {
+    if (!isOpen || !repoSearchReady || !fullpath) {
+      return;
+    }
+
+    const result = getRepositoryCVEs(fullpath, cvePage, CVE_PAGE_SIZE);
+    setCves(result.cves);
+    setCveTotalPages(result.totalPages);
+    setCveTotal(result.total);
+  }, [isOpen, repoSearchReady, fullpath, cvePage, getRepositoryCVEs]);
+
+  // Reset page when drawer opens with a different repository
+  useEffect(() => {
+    if (isOpen) {
+      setCvePage(1);
+    }
+  }, [isOpen, fullpath]);
+
+  const handleCveClick = useCallback(
+    (cveId: string) => {
+      if (!cveSearchReady) return;
+      const cveDetails = getCVEDetails(cveId);
+      if (cveDetails) {
+        setSelectedCve(cveDetails);
+        setSelectedCveId(cveId);
+      }
+    },
+    [cveSearchReady, getCVEDetails]
+  );
+
+  const handleCloseCveDrawer = useCallback(() => {
+    setSelectedCveId(null);
+    setSelectedCve(null);
+  }, []);
 
   if (!repository) return null;
 
-  // Extract and type repository fields
-  const fullpath = repository.fullpath as string;
+  // Extract and type repository fields (now guaranteed to exist)
+  const repoFullpath = repository.fullpath as string;
   const name = repository.name as string | null;
   const stars = (repository.stars as number) ?? 0;
   const size = repository.size as number | null;
@@ -84,11 +144,9 @@ export function RepoDetailDrawer({
     repository.languages as string
   );
   const tags = parseJSON<string[]>(repository.tags as string) ?? [];
-  const cves = (repository.cves as CVESearchResult[]) ?? [];
-  const cveCount = (repository.cve_count as number) ?? 0;
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(fullpath);
+    await navigator.clipboard.writeText(repoFullpath);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -116,12 +174,12 @@ export function RepoDetailDrawer({
                   <SheetTitle className='flex items-center gap-2 text-xl'>
                     <IconBrandGithub className='h-6 w-6 shrink-0' />
                     <span className='truncate'>
-                      {name || fullpath.split('/').pop()}
+                      {name || repoFullpath.split('/').pop()}
                     </span>
                   </SheetTitle>
                   <div className='mt-2 flex items-center gap-2'>
                     <code className='bg-muted text-muted-foreground truncate rounded px-2 py-1 text-sm'>
-                      {fullpath}
+                      {repoFullpath}
                     </code>
                     <Button
                       variant='ghost'
@@ -139,7 +197,7 @@ export function RepoDetailDrawer({
                 </div>
                 <Button variant='outline' size='sm' asChild>
                   <a
-                    href={`https://github.com/${fullpath}`}
+                    href={`https://github.com/${repoFullpath}`}
                     target='_blank'
                     rel='noopener noreferrer'
                   >
@@ -313,99 +371,136 @@ export function RepoDetailDrawer({
                       <IconBug className='h-5 w-5 text-red-500' />
                       {t('relatedCVEs')}
                       <Badge variant='destructive' className='ml-2'>
-                        {cveCount}
+                        {cveTotal || cveCount}
                       </Badge>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
-                    <div className='overflow-x-auto rounded-lg border'>
-                      <Table className='min-w-[500px]'>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className='min-w-[200px]'>
-                              {t('cveId')}
-                            </TableHead>
-                            <TableHead className='w-[80px]'>
-                              {t('score')}
-                            </TableHead>
-                            <TableHead className='w-[80px]'>
-                              {t('flags')}
-                            </TableHead>
-                            <TableHead className='w-[100px]'>
-                              {t('published')}
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {cves.map((cve) => {
-                            const severity = getSeverityFromScore(
-                              cve.max_score ?? 0
-                            );
-                            return (
-                              <TableRow key={cve.cve_id}>
-                                <TableCell>
-                                  <a
-                                    href={`https://nvd.nist.gov/vuln/detail/${cve.cve_id}`}
-                                    target='_blank'
-                                    rel='noopener noreferrer'
-                                    className='font-mono text-sm font-medium hover:underline'
-                                  >
-                                    {cve.cve_id}
-                                  </a>
-                                  {cve.title && (
-                                    <p className='text-muted-foreground mt-1 line-clamp-1 text-xs'>
-                                      {cve.title}
-                                    </p>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {cve.max_score !== null ? (
-                                    <Badge
-                                      className={cn(
-                                        'font-mono',
-                                        getSeverityColor(severity)
-                                      )}
-                                    >
-                                      {cve.max_score.toFixed(1)}
-                                    </Badge>
-                                  ) : (
-                                    <span className='text-muted-foreground'>
-                                      —
+                    <div className='space-y-4'>
+                      <div className='overflow-x-auto rounded-lg border'>
+                        <Table className='min-w-[500px]'>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className='min-w-[200px]'>
+                                {t('cveId')}
+                              </TableHead>
+                              <TableHead className='w-[80px]'>
+                                {t('score')}
+                              </TableHead>
+                              <TableHead className='w-[80px]'>
+                                {t('flags')}
+                              </TableHead>
+                              <TableHead className='w-[100px]'>
+                                {t('published')}
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {cves.map((cve) => {
+                              const severity = getSeverityFromScore(
+                                cve.max_score ?? 0
+                              );
+                              return (
+                                <TableRow
+                                  key={cve.cve_id}
+                                  className='hover:bg-muted/50 cursor-pointer transition-colors'
+                                  onClick={() => handleCveClick(cve.cve_id)}
+                                >
+                                  <TableCell>
+                                    <span className='text-primary font-mono text-sm font-medium hover:underline'>
+                                      {cve.cve_id}
                                     </span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <div className='flex gap-1'>
-                                    {cve.exists_exploit && (
-                                      <Badge
-                                        variant='destructive'
-                                        className='gap-1'
-                                      >
-                                        <IconSkull className='h-3 w-3' />
-                                      </Badge>
+                                    {cve.title && (
+                                      <p className='text-muted-foreground mt-1 line-clamp-1 text-xs'>
+                                        {cve.title}
+                                      </p>
                                     )}
-                                    {cve.exists_commit && (
+                                  </TableCell>
+                                  <TableCell>
+                                    {cve.max_score !== null ? (
                                       <Badge
-                                        variant='secondary'
-                                        className='gap-1 bg-green-500/20 text-green-700 dark:text-green-400'
+                                        className={cn(
+                                          'font-mono',
+                                          getSeverityColor(severity)
+                                        )}
                                       >
-                                        <IconGitCommit className='h-3 w-3' />
+                                        {cve.max_score.toFixed(1)}
                                       </Badge>
+                                    ) : (
+                                      <span className='text-muted-foreground'>
+                                        —
+                                      </span>
                                     )}
-                                  </div>
-                                </TableCell>
-                                <TableCell className='text-muted-foreground text-sm'>
-                                  {cve.date_published
-                                    ? new Date(
-                                        cve.date_published
-                                      ).toLocaleDateString()
-                                    : '—'}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className='flex gap-1'>
+                                      {cve.exists_exploit && (
+                                        <Badge
+                                          variant='destructive'
+                                          className='gap-1'
+                                        >
+                                          <IconSkull className='h-3 w-3' />
+                                        </Badge>
+                                      )}
+                                      {cve.exists_commit && (
+                                        <Badge
+                                          variant='secondary'
+                                          className='gap-1 bg-green-500/20 text-green-700 dark:text-green-400'
+                                        >
+                                          <IconGitCommit className='h-3 w-3' />
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className='text-muted-foreground text-sm'>
+                                    {cve.date_published
+                                      ? new Date(
+                                          cve.date_published
+                                        ).toLocaleDateString()
+                                      : '—'}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      {/* Pagination Controls */}
+                      {cveTotalPages > 1 && (
+                        <div className='flex items-center justify-between'>
+                          <p className='text-muted-foreground text-sm'>
+                            {t('page')} {cvePage} {t('of')} {cveTotalPages} (
+                            {cveTotal} CVEs)
+                          </p>
+                          <div className='flex items-center gap-2'>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              onClick={() =>
+                                setCvePage((p) => Math.max(1, p - 1))
+                              }
+                              disabled={cvePage <= 1}
+                            >
+                              <IconChevronLeft className='h-4 w-4' />
+                              {t('previous')}
+                            </Button>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              onClick={() =>
+                                setCvePage((p) =>
+                                  Math.min(cveTotalPages, p + 1)
+                                )
+                              }
+                              disabled={cvePage >= cveTotalPages}
+                            >
+                              {t('next')}
+                              <IconChevronRight className='h-4 w-4' />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </AccordionContent>
                 </AccordionItem>
@@ -414,6 +509,13 @@ export function RepoDetailDrawer({
           </div>
         </ScrollArea>
       </SheetContent>
+
+      {/* CVE Detail Drawer */}
+      <CVEDetailDrawer
+        cve={selectedCve}
+        isOpen={selectedCveId !== null}
+        onClose={handleCloseCveDrawer}
+      />
     </Sheet>
   );
 }
