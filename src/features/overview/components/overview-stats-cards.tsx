@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
+import { useEffect, useState } from 'react';
 import {
   Card,
   CardHeader,
@@ -9,11 +9,34 @@ import {
   CardAction,
   CardFooter
 } from '@/components/ui/card';
-import { IconTrendingDown, IconTrendingUp } from '@tabler/icons-react';
+import {
+  IconShieldExclamation,
+  IconAlertTriangle,
+  IconBug,
+  IconGitCommit
+} from '@tabler/icons-react';
 import { useTranslations } from 'next-intl';
+import {
+  useDashboardStats,
+  type DashboardStats
+} from '@/lib/sqlite/use-dashboard-stats';
 
 export function OverviewStatsCards() {
   const t = useTranslations('dashboard');
+  const { getRecentStats, isReady } = useDashboardStats();
+  const [stats, setStats] = useState<DashboardStats>({
+    newCVEs: 0,
+    newCriticalCVEs: 0,
+    newWithExploit: 0,
+    newWithFix: 0
+  });
+
+  useEffect(() => {
+    if (isReady) {
+      const data = getRecentStats();
+      setStats(data);
+    }
+  }, [isReady, getRecentStats]);
 
   return (
     <div
@@ -22,90 +45,86 @@ export function OverviewStatsCards() {
     >
       <Card className='@container/card'>
         <CardHeader>
-          <CardDescription>{t('totalRevenue')}</CardDescription>
+          <CardDescription>{t('newCVEs')}</CardDescription>
           <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-            $1,250.00
+            {stats.newCVEs.toLocaleString()}
           </CardTitle>
           <CardAction>
-            <Badge variant='outline'>
-              <IconTrendingUp />
-              +12.5%
-            </Badge>
+            <span className='flex items-center gap-1 text-xs font-medium text-blue-600'>
+              <IconShieldExclamation className='h-4 w-4' />
+              30d
+            </span>
           </CardAction>
         </CardHeader>
         <CardFooter className='flex-col items-start gap-1.5 text-sm'>
           <div className='line-clamp-1 flex gap-2 font-medium'>
-            {t('trendingUp')} <IconTrendingUp className='size-4' />
+            {t('newCVEsFooter')}{' '}
+            <IconShieldExclamation className='size-4 text-blue-500' />
           </div>
-          <div className='text-muted-foreground'>
-            {t('visitorsLast6Months')}
-          </div>
+          <div className='text-muted-foreground'>{t('last30Days')}</div>
         </CardFooter>
       </Card>
       <Card className='@container/card'>
         <CardHeader>
-          <CardDescription>{t('newCustomers')}</CardDescription>
+          <CardDescription>{t('criticalCVEs')}</CardDescription>
           <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-            1,234
+            {stats.newCriticalCVEs.toLocaleString()}
           </CardTitle>
           <CardAction>
-            <Badge variant='outline'>
-              <IconTrendingDown />
-              -20%
-            </Badge>
+            <span className='flex items-center gap-1 text-xs font-medium text-red-600'>
+              <IconAlertTriangle className='h-4 w-4' />
+              9.0+
+            </span>
           </CardAction>
         </CardHeader>
         <CardFooter className='flex-col items-start gap-1.5 text-sm'>
           <div className='line-clamp-1 flex gap-2 font-medium'>
-            {t('trendingDown')} <IconTrendingDown className='size-4' />
+            {t('criticalCVEsFooter')}{' '}
+            <IconAlertTriangle className='size-4 text-red-500' />
           </div>
-          <div className='text-muted-foreground'>
-            {t('acquisitionNeedsAttention')}
-          </div>
+          <div className='text-muted-foreground'>{t('cvssScore9Plus')}</div>
         </CardFooter>
       </Card>
       <Card className='@container/card'>
         <CardHeader>
-          <CardDescription>{t('activeAccounts')}</CardDescription>
+          <CardDescription>{t('newExploits')}</CardDescription>
           <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-            45,678
+            {stats.newWithExploit.toLocaleString()}
           </CardTitle>
           <CardAction>
-            <Badge variant='outline'>
-              <IconTrendingUp />
-              +12.5%
-            </Badge>
+            <span className='flex items-center gap-1 text-xs font-medium text-orange-600'>
+              <IconBug className='h-4 w-4' />
+              Exploit
+            </span>
           </CardAction>
         </CardHeader>
         <CardFooter className='flex-col items-start gap-1.5 text-sm'>
           <div className='line-clamp-1 flex gap-2 font-medium'>
-            {t('strongRetention')} <IconTrendingUp className='size-4' />
+            {t('newExploitsFooter')}{' '}
+            <IconBug className='size-4 text-orange-500' />
           </div>
-          <div className='text-muted-foreground'>
-            {t('engagementExceedsTargets')}
-          </div>
+          <div className='text-muted-foreground'>{t('exploitsAvailable')}</div>
         </CardFooter>
       </Card>
       <Card className='@container/card'>
         <CardHeader>
-          <CardDescription>{t('growthRate')}</CardDescription>
+          <CardDescription>{t('newFixes')}</CardDescription>
           <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-            4.5%
+            {stats.newWithFix.toLocaleString()}
           </CardTitle>
           <CardAction>
-            <Badge variant='outline'>
-              <IconTrendingUp />
-              +4.5%
-            </Badge>
+            <span className='flex items-center gap-1 text-xs font-medium text-green-600'>
+              <IconGitCommit className='h-4 w-4' />
+              Fix
+            </span>
           </CardAction>
         </CardHeader>
         <CardFooter className='flex-col items-start gap-1.5 text-sm'>
           <div className='line-clamp-1 flex gap-2 font-medium'>
-            {t('steadyGrowth')} <IconTrendingUp className='size-4' />
+            {t('newFixesFooter')}{' '}
+            <IconGitCommit className='size-4 text-green-500' />
           </div>
-          <div className='text-muted-foreground'>
-            {t('meetsGrowthProjections')}
-          </div>
+          <div className='text-muted-foreground'>{t('patchesReleased')}</div>
         </CardFooter>
       </Card>
     </div>

@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
+import { useEffect, useState, useCallback } from 'react';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { useTranslations, useLocale } from 'next-intl';
+import { useRouter } from 'next/navigation';
 
 import {
   Card,
@@ -17,134 +19,138 @@ import {
   ChartTooltip,
   ChartTooltipContent
 } from '@/components/ui/chart';
+import { Button } from '@/components/ui/button';
+import {
+  useDashboardStats,
+  type CVEsByPeriod,
+  type ChartPeriod
+} from '@/lib/sqlite/use-dashboard-stats';
+import type { DatePeriod } from '@/features/search/types';
 
-export const description = 'An interactive bar chart';
+const MONTH_NAMES: Record<string, Record<string, string>> = {
+  'pt-BR': {
+    '01': 'Jan',
+    '02': 'Fev',
+    '03': 'Mar',
+    '04': 'Abr',
+    '05': 'Mai',
+    '06': 'Jun',
+    '07': 'Jul',
+    '08': 'Ago',
+    '09': 'Set',
+    '10': 'Out',
+    '11': 'Nov',
+    '12': 'Dez'
+  },
+  en: {
+    '01': 'Jan',
+    '02': 'Feb',
+    '03': 'Mar',
+    '04': 'Apr',
+    '05': 'May',
+    '06': 'Jun',
+    '07': 'Jul',
+    '08': 'Aug',
+    '09': 'Sep',
+    '10': 'Oct',
+    '11': 'Nov',
+    '12': 'Dec'
+  }
+};
 
-const chartData = [
-  { date: '2024-04-01', desktop: 222, mobile: 150 },
-  { date: '2024-04-02', desktop: 97, mobile: 180 },
-  { date: '2024-04-03', desktop: 167, mobile: 120 },
-  { date: '2024-04-04', desktop: 242, mobile: 260 },
-  { date: '2024-04-05', desktop: 373, mobile: 290 },
-  { date: '2024-04-06', desktop: 301, mobile: 340 },
-  { date: '2024-04-07', desktop: 245, mobile: 180 },
-  { date: '2024-04-08', desktop: 409, mobile: 320 },
-  { date: '2024-04-09', desktop: 59, mobile: 110 },
-  { date: '2024-04-10', desktop: 261, mobile: 190 },
-  { date: '2024-04-11', desktop: 327, mobile: 350 },
-  { date: '2024-04-12', desktop: 292, mobile: 210 },
-  { date: '2024-04-13', desktop: 342, mobile: 380 },
-  { date: '2024-04-14', desktop: 137, mobile: 220 },
-  { date: '2024-04-15', desktop: 120, mobile: 170 },
-  { date: '2024-04-16', desktop: 138, mobile: 190 },
-  { date: '2024-04-17', desktop: 446, mobile: 360 },
-  { date: '2024-04-18', desktop: 364, mobile: 410 },
-  { date: '2024-04-19', desktop: 243, mobile: 180 },
-  { date: '2024-04-20', desktop: 89, mobile: 150 },
-  { date: '2024-04-21', desktop: 137, mobile: 200 },
-  { date: '2024-04-22', desktop: 224, mobile: 170 },
-  { date: '2024-04-23', desktop: 138, mobile: 230 },
-  { date: '2024-04-24', desktop: 387, mobile: 290 },
-  { date: '2024-04-25', desktop: 215, mobile: 250 },
-  { date: '2024-04-26', desktop: 75, mobile: 130 },
-  { date: '2024-04-27', desktop: 383, mobile: 420 },
-  { date: '2024-04-28', desktop: 122, mobile: 180 },
-  { date: '2024-04-29', desktop: 315, mobile: 240 },
-  { date: '2024-04-30', desktop: 454, mobile: 380 },
-  { date: '2024-05-01', desktop: 165, mobile: 220 },
-  { date: '2024-05-02', desktop: 293, mobile: 310 },
-  { date: '2024-05-03', desktop: 247, mobile: 190 },
-  { date: '2024-05-04', desktop: 385, mobile: 420 },
-  { date: '2024-05-05', desktop: 481, mobile: 390 },
-  { date: '2024-05-06', desktop: 498, mobile: 520 },
-  { date: '2024-05-07', desktop: 388, mobile: 300 },
-  { date: '2024-05-08', desktop: 149, mobile: 210 },
-  { date: '2024-05-09', desktop: 227, mobile: 180 },
-  { date: '2024-05-10', desktop: 293, mobile: 330 },
-  { date: '2024-05-11', desktop: 335, mobile: 270 },
-  { date: '2024-05-12', desktop: 197, mobile: 240 },
-  { date: '2024-05-13', desktop: 197, mobile: 160 },
-  { date: '2024-05-14', desktop: 448, mobile: 490 },
-  { date: '2024-05-15', desktop: 473, mobile: 380 },
-  { date: '2024-05-16', desktop: 338, mobile: 400 },
-  { date: '2024-05-17', desktop: 499, mobile: 420 },
-  { date: '2024-05-18', desktop: 315, mobile: 350 },
-  { date: '2024-05-19', desktop: 235, mobile: 180 },
-  { date: '2024-05-20', desktop: 177, mobile: 230 },
-  { date: '2024-05-21', desktop: 82, mobile: 140 },
-  { date: '2024-05-22', desktop: 81, mobile: 120 },
-  { date: '2024-05-23', desktop: 252, mobile: 290 },
-  { date: '2024-05-24', desktop: 294, mobile: 220 },
-  { date: '2024-05-25', desktop: 201, mobile: 250 },
-  { date: '2024-05-26', desktop: 213, mobile: 170 },
-  { date: '2024-05-27', desktop: 420, mobile: 460 },
-  { date: '2024-05-28', desktop: 233, mobile: 190 },
-  { date: '2024-05-29', desktop: 78, mobile: 130 },
-  { date: '2024-05-30', desktop: 340, mobile: 280 },
-  { date: '2024-05-31', desktop: 178, mobile: 230 },
-  { date: '2024-06-01', desktop: 178, mobile: 200 },
-  { date: '2024-06-02', desktop: 470, mobile: 410 },
-  { date: '2024-06-03', desktop: 103, mobile: 160 },
-  { date: '2024-06-04', desktop: 439, mobile: 380 },
-  { date: '2024-06-05', desktop: 88, mobile: 140 },
-  { date: '2024-06-06', desktop: 294, mobile: 250 },
-  { date: '2024-06-07', desktop: 323, mobile: 370 },
-  { date: '2024-06-08', desktop: 385, mobile: 320 },
-  { date: '2024-06-09', desktop: 438, mobile: 480 },
-  { date: '2024-06-10', desktop: 155, mobile: 200 },
-  { date: '2024-06-11', desktop: 92, mobile: 150 },
-  { date: '2024-06-12', desktop: 492, mobile: 420 },
-  { date: '2024-06-13', desktop: 81, mobile: 130 },
-  { date: '2024-06-14', desktop: 426, mobile: 380 },
-  { date: '2024-06-15', desktop: 307, mobile: 350 },
-  { date: '2024-06-16', desktop: 371, mobile: 310 },
-  { date: '2024-06-17', desktop: 475, mobile: 520 },
-  { date: '2024-06-18', desktop: 107, mobile: 170 },
-  { date: '2024-06-19', desktop: 341, mobile: 290 },
-  { date: '2024-06-20', desktop: 408, mobile: 450 },
-  { date: '2024-06-21', desktop: 169, mobile: 210 },
-  { date: '2024-06-22', desktop: 317, mobile: 270 },
-  { date: '2024-06-23', desktop: 480, mobile: 530 },
-  { date: '2024-06-24', desktop: 132, mobile: 180 },
-  { date: '2024-06-25', desktop: 141, mobile: 190 },
-  { date: '2024-06-26', desktop: 434, mobile: 380 },
-  { date: '2024-06-27', desktop: 448, mobile: 490 },
-  { date: '2024-06-28', desktop: 149, mobile: 200 },
-  { date: '2024-06-29', desktop: 103, mobile: 160 },
-  { date: '2024-06-30', desktop: 446, mobile: 400 }
+const PERIODS: { value: ChartPeriod; label: string }[] = [
+  { value: '30d', label: '30d' },
+  { value: '1y', label: '1y' },
+  { value: '5y', label: '5y' }
 ];
+
+// Map chart period to search period
+const periodToSearchPeriod: Record<ChartPeriod, DatePeriod> = {
+  '30d': '30d',
+  '1y': '1y',
+  '5y': '5y'
+};
 
 export function BarGraph() {
   const t = useTranslations('charts');
   const locale = useLocale();
+  const router = useRouter();
+  const { getCVEsByPeriod, isReady } = useDashboardStats();
+  const [period, setPeriod] = useState<ChartPeriod>('30d');
+  const [data, setData] = useState<CVEsByPeriod[]>([]);
+  const [activeChart, setActiveChart] = useState<'total' | 'withExploit'>(
+    'total'
+  );
+
+  const loadData = useCallback(() => {
+    if (isReady) {
+      const periodData = getCVEsByPeriod(period);
+      setData(periodData);
+    }
+  }, [isReady, getCVEsByPeriod, period]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleBarClick = useCallback(
+    (barData: { period: string }) => {
+      // Build URL with filters based on clicked period
+      const params = new URLSearchParams();
+
+      // Use custom date for the specific period
+      params.set('period', 'custom');
+      params.set('date', barData.period);
+
+      // If viewing exploit data, filter by has exploit
+      if (activeChart === 'withExploit') {
+        params.set('exploit', 'true');
+      }
+
+      router.push(`/dashboard/search?${params.toString()}`);
+    },
+    [activeChart, router]
+  );
 
   const chartConfig = {
-    views: {
-      label: t('visitors')
+    cves: {
+      label: 'CVEs'
     },
-    desktop: {
-      label: t('desktop'),
+    total: {
+      label: t('totalCVEs'),
       color: 'var(--primary)'
     },
-    mobile: {
-      label: t('mobile'),
-      color: 'var(--primary)'
-    },
-    error: {
-      label: 'Error',
-      color: 'var(--primary)'
+    withExploit: {
+      label: t('withExploit'),
+      color: 'hsl(25, 95%, 53%)'
     }
   } satisfies ChartConfig;
 
-  const [activeChart, setActiveChart] =
-    React.useState<keyof typeof chartConfig>('desktop');
+  const chartData = data.map((item) => {
+    let displayLabel = item.label;
+
+    // Format label based on period
+    if (period === '1y') {
+      displayLabel =
+        MONTH_NAMES[locale]?.[item.label] ??
+        MONTH_NAMES['en'][item.label] ??
+        item.label;
+    }
+
+    return {
+      period: item.period,
+      label: displayLabel,
+      total: item.total,
+      withExploit: item.withExploit
+    };
+  });
 
   const total = React.useMemo(
     () => ({
-      desktop: chartData.reduce((acc, curr) => acc + curr.desktop, 0),
-      mobile: chartData.reduce((acc, curr) => acc + curr.mobile, 0)
+      total: chartData.reduce((acc, curr) => acc + curr.total, 0),
+      withExploit: chartData.reduce((acc, curr) => acc + curr.withExploit, 0)
     }),
-    []
+    [chartData]
   );
 
   const [isClient, setIsClient] = React.useState(false);
@@ -153,56 +159,58 @@ export function BarGraph() {
     setIsClient(true);
   }, []);
 
-  React.useEffect(() => {
-    if (activeChart === 'error') {
-      throw new Error('Mocking Error');
-    }
-  }, [activeChart]);
-
   if (!isClient) {
     return null;
   }
 
   return (
-    <Card className='@container/card !pt-3'>
+    <Card className='@container/card flex h-full flex-col !pt-3'>
       <CardHeader className='flex flex-col items-stretch space-y-0 border-b !p-0 sm:flex-row'>
         <div className='flex flex-1 flex-col justify-center gap-1 px-6 !py-0'>
-          <CardTitle>{t('barChart')}</CardTitle>
+          <div className='flex items-center justify-between'>
+            <CardTitle>{t('cvesByPeriod')}</CardTitle>
+            <div className='flex gap-1'>
+              {PERIODS.map((p) => (
+                <Button
+                  key={p.value}
+                  variant={period === p.value ? 'default' : 'ghost'}
+                  size='sm'
+                  className='h-7 px-2 text-xs'
+                  onClick={() => setPeriod(p.value)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           <CardDescription>
-            <span className='hidden @[540px]/card:block'>
-              {t('barChartDescription')}
-            </span>
-            <span className='@[540px]/card:hidden'>
-              {t('barChartDescription')}
-            </span>
+            {t(`cvesByPeriodDescription${period}`)}
           </CardDescription>
         </div>
         <div className='flex'>
-          {['desktop', 'mobile', 'error'].map((key) => {
-            const chart = key as keyof typeof chartConfig;
-            if (!chart || total[key as keyof typeof total] === 0) return null;
+          {(['total', 'withExploit'] as const).map((key) => {
             return (
               <button
-                key={chart}
-                data-active={activeChart === chart}
+                key={key}
+                data-active={activeChart === key}
                 className='data-[active=true]:bg-primary/5 hover:bg-primary/5 relative flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left transition-colors duration-200 even:border-l sm:border-t-0 sm:border-l sm:px-8 sm:py-6'
-                onClick={() => setActiveChart(chart)}
+                onClick={() => setActiveChart(key)}
               >
                 <span className='text-muted-foreground text-xs'>
-                  {chartConfig[chart].label}
+                  {chartConfig[key].label}
                 </span>
                 <span className='text-lg leading-none font-bold sm:text-3xl'>
-                  {total[key as keyof typeof total]?.toLocaleString()}
+                  {total[key].toLocaleString()}
                 </span>
               </button>
             );
           })}
         </div>
       </CardHeader>
-      <CardContent className='px-2 pt-4 sm:px-6 sm:pt-6'>
+      <CardContent className='flex flex-1 flex-col px-2 pt-4 sm:px-6 sm:pt-6'>
         <ChartContainer
           config={chartConfig}
-          className='aspect-auto h-[250px] w-full'
+          className='aspect-auto min-h-[250px] w-full flex-1'
         >
           <BarChart
             data={chartData}
@@ -212,7 +220,7 @@ export function BarGraph() {
             }}
           >
             <defs>
-              <linearGradient id='fillBar' x1='0' y1='0' x2='0' y2='1'>
+              <linearGradient id='fillBarTotal' x1='0' y1='0' x2='0' y2='1'>
                 <stop
                   offset='0%'
                   stopColor='var(--primary)'
@@ -224,42 +232,56 @@ export function BarGraph() {
                   stopOpacity={0.2}
                 />
               </linearGradient>
+              <linearGradient id='fillBarExploit' x1='0' y1='0' x2='0' y2='1'>
+                <stop
+                  offset='0%'
+                  stopColor='hsl(25, 95%, 53%)'
+                  stopOpacity={0.8}
+                />
+                <stop
+                  offset='100%'
+                  stopColor='hsl(25, 95%, 53%)'
+                  stopOpacity={0.2}
+                />
+              </linearGradient>
             </defs>
             <CartesianGrid vertical={false} />
             <XAxis
-              dataKey='date'
+              dataKey='label'
               tickLine={false}
               axisLine={false}
               tickMargin={8}
               minTickGap={32}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              width={50}
               tickFormatter={(value) => {
-                const date = new Date(value);
-                return date.toLocaleDateString(locale, {
-                  month: 'short',
-                  day: 'numeric'
-                });
+                if (value >= 1000) {
+                  const k = value / 1000;
+                  return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+                }
+                return value;
               }}
             />
             <ChartTooltip
               cursor={{ fill: 'var(--primary)', opacity: 0.1 }}
               content={
-                <ChartTooltipContent
-                  className='w-[150px]'
-                  nameKey='views'
-                  labelFormatter={(value) => {
-                    return new Date(value).toLocaleDateString(locale, {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    });
-                  }}
-                />
+                <ChartTooltipContent className='w-[150px]' nameKey='cves' />
               }
             />
             <Bar
               dataKey={activeChart}
-              fill='url(#fillBar)'
+              fill={
+                activeChart === 'total'
+                  ? 'url(#fillBarTotal)'
+                  : 'url(#fillBarExploit)'
+              }
               radius={[4, 4, 0, 0]}
+              style={{ cursor: 'pointer' }}
+              onClick={(data) => handleBarClick(data)}
             />
           </BarChart>
         </ChartContainer>

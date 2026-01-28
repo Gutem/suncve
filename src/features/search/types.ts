@@ -94,6 +94,16 @@ export function getSeverityColor(severity: Severity): string {
   }
 }
 
+export type DatePeriod =
+  | 'today'
+  | '7d'
+  | '30d'
+  | '120d'
+  | '1y'
+  | '5y'
+  | 'custom'
+  | 'all';
+
 export interface SearchFilters {
   query: string;
   cvssMin: number;
@@ -108,6 +118,8 @@ export interface SearchFilters {
   starsMax: number | null;
   repoSizeMin: number | null;
   repoSizeMax: number | null;
+  datePeriod: DatePeriod;
+  customDate: string | null; // For specific date (YYYY-MM-DD)
 }
 
 export const defaultFilters: SearchFilters = {
@@ -123,7 +135,9 @@ export const defaultFilters: SearchFilters = {
   starsMin: null,
   starsMax: null,
   repoSizeMin: null,
-  repoSizeMax: null
+  repoSizeMax: null,
+  datePeriod: 'all',
+  customDate: null
 };
 
 export type SortField =

@@ -42,8 +42,10 @@ import {
 import {
   type SearchFilters,
   type Severity,
+  type DatePeriod,
   defaultFilters
 } from '@/features/search/types';
+import { Input } from '@/components/ui/input';
 import { CheckIcon } from '@radix-ui/react-icons';
 import { cn } from '@/lib/utils';
 
@@ -131,6 +133,28 @@ export function FiltersPanel({
         ...filters,
         starsMin: value[0] > 0 ? value[0] : null,
         starsMax: value[1] < 100000 ? value[1] : null
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
+  const handleDatePeriodChange = useCallback(
+    (period: DatePeriod) => {
+      onFiltersChange({
+        ...filters,
+        datePeriod: period,
+        customDate: period === 'custom' ? filters.customDate : null
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
+  const handleCustomDateChange = useCallback(
+    (date: string) => {
+      onFiltersChange({
+        ...filters,
+        datePeriod: 'custom',
+        customDate: date
       });
     },
     [filters, onFiltersChange]
@@ -364,6 +388,54 @@ export function FiltersPanel({
               <span>{(filters.starsMax ?? 100000).toLocaleString()}+</span>
             </div>
           </div>
+
+          {/* Date Period Filter */}
+          <div className='space-y-3 md:col-span-2 lg:col-span-3'>
+            <Label>{t('datePeriod')}</Label>
+            <div className='flex flex-wrap items-center gap-2'>
+              {(
+                [
+                  'today',
+                  '7d',
+                  '30d',
+                  '120d',
+                  '1y',
+                  '5y',
+                  'all'
+                ] as DatePeriod[]
+              ).map((period) => (
+                <Badge
+                  key={period}
+                  variant={
+                    filters.datePeriod === period ? 'default' : 'outline'
+                  }
+                  className='cursor-pointer transition-colors'
+                  onClick={() => handleDatePeriodChange(period)}
+                >
+                  {t(`period_${period}`)}
+                </Badge>
+              ))}
+              <div className='flex items-center gap-2'>
+                <Badge
+                  variant={
+                    filters.datePeriod === 'custom' ? 'default' : 'outline'
+                  }
+                  className='cursor-pointer transition-colors'
+                  onClick={() => handleDatePeriodChange('custom')}
+                >
+                  {t('period_custom')}
+                </Badge>
+                {filters.datePeriod === 'custom' && (
+                  <Input
+                    type='date'
+                    value={filters.customDate || ''}
+                    onChange={(e) => handleCustomDateChange(e.target.value)}
+                    className='w-auto'
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -432,5 +504,6 @@ function countActiveFilters(filters: SearchFilters): number {
   if (filters.languages.length > 0) count++;
   if (filters.starsMin !== null || filters.starsMax !== null) count++;
   if (filters.repoSizeMin !== null || filters.repoSizeMax !== null) count++;
+  if (filters.datePeriod !== 'all') count++;
   return count;
 }

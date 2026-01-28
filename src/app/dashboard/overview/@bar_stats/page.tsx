@@ -1,8 +1,15 @@
-import { delay } from '@/constants/mock-api';
-import { BarGraph } from '@/features/overview/components/bar-graph';
+'use client';
 
-export default async function BarStats() {
-  await await delay(1000);
+import dynamic from 'next/dynamic';
 
+const BarGraph = dynamic(
+  () =>
+    import('@/features/overview/components/bar-graph').then(
+      (mod) => mod.BarGraph
+    ),
+  { ssr: false }
+);
+
+export default function BarStats() {
   return <BarGraph />;
 }

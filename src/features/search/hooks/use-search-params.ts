@@ -15,12 +15,23 @@ import type {
   SortConfig,
   SortField,
   SortOrder,
-  Severity
+  Severity,
+  DatePeriod
 } from '../types';
 import { defaultFilters } from '../types';
 
 // Define severity options for parser
 const severityOptions = ['critical', 'high', 'medium', 'low', 'none'] as const;
+const datePeriodOptions = [
+  'today',
+  '7d',
+  '30d',
+  '120d',
+  '1y',
+  '5y',
+  'custom',
+  'all'
+] as const;
 const sortFieldOptions = [
   'cve_id',
   'date_published',
@@ -89,6 +100,10 @@ const searchParamsConfig = {
   sizeMin: parseAsNullableInt,
   sizeMax: parseAsNullableInt,
 
+  // Date period filter
+  period: parseAsStringLiteral(datePeriodOptions).withDefault('all'),
+  date: parseAsString.withDefault(''),
+
   // Sorting
   sort: parseAsStringLiteral(sortFieldOptions).withDefault('date_published'),
   order: parseAsStringLiteral(sortOrderOptions).withDefault('desc'),
@@ -118,7 +133,9 @@ export function useSearchParams() {
       starsMin: params.starsMin,
       starsMax: params.starsMax,
       repoSizeMin: params.sizeMin,
-      repoSizeMax: params.sizeMax
+      repoSizeMax: params.sizeMax,
+      datePeriod: params.period as DatePeriod,
+      customDate: params.date || null
     }),
     [params]
   );
@@ -152,6 +169,8 @@ export function useSearchParams() {
         starsMax: newFilters.starsMax,
         sizeMin: newFilters.repoSizeMin,
         sizeMax: newFilters.repoSizeMax,
+        period: newFilters.datePeriod === 'all' ? null : newFilters.datePeriod,
+        date: newFilters.customDate || null,
         // Reset page when filters change
         page: 1
       });
@@ -196,6 +215,8 @@ export function useSearchParams() {
       starsMax: null,
       sizeMin: null,
       sizeMax: null,
+      period: null,
+      date: null,
       sort: null,
       order: null,
       page: null
@@ -217,7 +238,8 @@ export function useSearchParams() {
       filters.starsMin !== null ||
       filters.starsMax !== null ||
       filters.repoSizeMin !== null ||
-      filters.repoSizeMax !== null
+      filters.repoSizeMax !== null ||
+      filters.datePeriod !== 'all'
     );
   }, [filters]);
 

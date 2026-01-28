@@ -1,7 +1,15 @@
-import { delay } from '@/constants/mock-api';
-import { RecentSales } from '@/features/overview/components/recent-sales';
+'use client';
 
-export default async function Sales() {
-  await delay(3000);
-  return <RecentSales />;
+import dynamic from 'next/dynamic';
+
+const CriticalCVEs = dynamic(
+  () =>
+    import('@/features/overview/components/critical-cves').then(
+      (mod) => mod.CriticalCVEs
+    ),
+  { ssr: false }
+);
+
+export default function Sales() {
+  return <CriticalCVEs />;
 }

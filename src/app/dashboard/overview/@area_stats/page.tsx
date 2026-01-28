@@ -1,7 +1,15 @@
-import { delay } from '@/constants/mock-api';
-import { AreaGraph } from '@/features/overview/components/area-graph';
+'use client';
 
-export default async function AreaStats() {
-  await await delay(2000);
+import dynamic from 'next/dynamic';
+
+const AreaGraph = dynamic(
+  () =>
+    import('@/features/overview/components/area-graph').then(
+      (mod) => mod.AreaGraph
+    ),
+  { ssr: false }
+);
+
+export default function AreaStats() {
   return <AreaGraph />;
 }
