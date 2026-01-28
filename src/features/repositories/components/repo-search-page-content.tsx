@@ -194,7 +194,8 @@ function RepositorySearchPageContentInner() {
               repoSizeMin: filters.sizeMin,
               repoSizeMax: filters.sizeMax,
               datePeriod: 'all',
-              customDate: null
+              customDate: null,
+              repository: null
             }}
             onFiltersChange={(searchFilters) =>
               handleFiltersChange({

@@ -120,6 +120,7 @@ export interface SearchFilters {
   repoSizeMax: number | null;
   datePeriod: DatePeriod;
   customDate: string | null; // For specific date (YYYY-MM-DD)
+  repository: string | null; // Filter by specific repository fullpath
 }
 
 export const defaultFilters: SearchFilters = {
@@ -137,7 +138,8 @@ export const defaultFilters: SearchFilters = {
   repoSizeMin: null,
   repoSizeMax: null,
   datePeriod: 'all',
-  customDate: null
+  customDate: null,
+  repository: null
 };
 
 export type SortField =

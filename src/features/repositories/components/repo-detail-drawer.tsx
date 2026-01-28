@@ -16,8 +16,10 @@ import {
   IconSkull,
   IconFolder,
   IconChevronLeft,
-  IconChevronRight
+  IconChevronRight,
+  IconSearch
 } from '@tabler/icons-react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -375,6 +377,14 @@ export function RepoDetailDrawer({
                       </Badge>
                     </div>
                   </AccordionTrigger>
+                  <Link
+                    href={`/dashboard/search?repo_filter=${encodeURIComponent(repoFullpath)}`}
+                    className='text-muted-foreground hover:text-primary mb-2 inline-flex items-center gap-1 text-sm transition-colors'
+                  >
+                    <IconSearch className='h-4 w-4' />
+                    {t('advancedFilters')}
+                    <IconExternalLink className='h-3 w-3' />
+                  </Link>
                   <AccordionContent>
                     <div className='space-y-4'>
                       <div className='overflow-x-auto rounded-lg border'>

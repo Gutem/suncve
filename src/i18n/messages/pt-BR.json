@@ -196,7 +196,9 @@
       "period_1y": "1 ano",
       "period_5y": "5 anos",
       "period_all": "Todos",
-      "period_custom": "Data específica"
+      "period_custom": "Data específica",
+      "repository": "Repositório",
+      "repositoryPlaceholder": "owner/repo-name"
     },
     "table": {
       "cveId": "CVE ID",
@@ -283,6 +285,7 @@
       "created": "Criado",
       "updated": "Atualizado",
       "relatedCVEs": "CVEs Relacionadas",
+      "advancedFilters": "Filtros avançados",
       "cveId": "CVE ID",
       "score": "Score",
       "flags": "Flags",

@@ -160,6 +160,16 @@ export function FiltersPanel({
     [filters, onFiltersChange]
   );
 
+  const handleRepositoryChange = useCallback(
+    (repo: string) => {
+      onFiltersChange({
+        ...filters,
+        repository: repo || null
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} data-tour='cve-filters'>
       <div
@@ -389,6 +399,17 @@ export function FiltersPanel({
             </div>
           </div>
 
+          {/* Repository Filter */}
+          <div className='space-y-3'>
+            <Label>{t('repository')}</Label>
+            <Input
+              type='text'
+              placeholder={t('repositoryPlaceholder')}
+              value={filters.repository || ''}
+              onChange={(e) => handleRepositoryChange(e.target.value)}
+            />
+          </div>
+
           {/* Date Period Filter */}
           <div className='space-y-3 md:col-span-2 lg:col-span-3'>
             <Label>{t('datePeriod')}</Label>
@@ -506,5 +527,6 @@ function countActiveFilters(filters: SearchFilters): number {
   if (filters.starsMin !== null || filters.starsMax !== null) count++;
   if (filters.repoSizeMin !== null || filters.repoSizeMax !== null) count++;
   if (filters.datePeriod !== 'all') count++;
+  if (filters.repository) count++;
   return count;
 }

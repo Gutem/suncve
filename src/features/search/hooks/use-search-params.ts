@@ -104,6 +104,9 @@ const searchParamsConfig = {
   period: parseAsStringLiteral(datePeriodOptions).withDefault('all'),
   date: parseAsString.withDefault(''),
 
+  // Repository filter
+  repo_filter: parseAsString.withDefault(''),
+
   // Sorting
   sort: parseAsStringLiteral(sortFieldOptions).withDefault('date_published'),
   order: parseAsStringLiteral(sortOrderOptions).withDefault('desc'),
@@ -135,7 +138,8 @@ export function useSearchParams() {
       repoSizeMin: params.sizeMin,
       repoSizeMax: params.sizeMax,
       datePeriod: params.period as DatePeriod,
-      customDate: params.date || null
+      customDate: params.date || null,
+      repository: params.repo_filter || null
     }),
     [params]
   );
@@ -171,6 +175,7 @@ export function useSearchParams() {
         sizeMax: newFilters.repoSizeMax,
         period: newFilters.datePeriod === 'all' ? null : newFilters.datePeriod,
         date: newFilters.customDate || null,
+        repo_filter: newFilters.repository || null,
         // Reset page when filters change
         page: 1
       });
@@ -217,6 +222,7 @@ export function useSearchParams() {
       sizeMax: null,
       period: null,
       date: null,
+      repo_filter: null,
       sort: null,
       order: null,
       page: null
@@ -239,7 +245,8 @@ export function useSearchParams() {
       filters.starsMax !== null ||
       filters.repoSizeMin !== null ||
       filters.repoSizeMax !== null ||
-      filters.datePeriod !== 'all'
+      filters.datePeriod !== 'all' ||
+      filters.repository !== null
     );
   }, [filters]);
 
