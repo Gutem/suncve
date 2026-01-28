@@ -121,6 +121,7 @@ export interface SearchFilters {
   datePeriod: DatePeriod;
   customDate: string | null; // For specific date (YYYY-MM-DD)
   repository: string | null; // Filter by specific repository fullpath
+  cweCategory: string | null; // Filter by CWE category (e.g., 'rce', 'injection')
 }
 
 export const defaultFilters: SearchFilters = {
@@ -139,7 +140,8 @@ export const defaultFilters: SearchFilters = {
   repoSizeMax: null,
   datePeriod: 'all',
   customDate: null,
-  repository: null
+  repository: null,
+  cweCategory: null
 };
 
 export type SortField =

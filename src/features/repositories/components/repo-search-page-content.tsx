@@ -185,6 +185,7 @@ function RepositorySearchPageContentInner() {
               cvssMax: 10,
               severity: [],
               cwes: [],
+              cweCategory: null,
               hasExploit: null,
               hasRepository: null,
               hasCommitFix: null,

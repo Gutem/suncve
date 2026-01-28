@@ -45,9 +45,11 @@ import {
   type DatePeriod,
   defaultFilters
 } from '@/features/search/types';
+import { CWE_CATEGORIES, getCWEDisplay } from '@/features/search/cwe-data';
 import { Input } from '@/components/ui/input';
 import { CheckIcon } from '@radix-ui/react-icons';
 import { cn } from '@/lib/utils';
+import { useLocale } from 'next-intl';
 
 interface FiltersPanelProps {
   filters: SearchFilters;
@@ -66,8 +68,10 @@ export function FiltersPanel({
   isSearching = false
 }: FiltersPanelProps) {
   const t = useTranslations('search.filters');
+  const locale = useLocale();
   const [isOpen, setIsOpen] = useState(false);
   const [cweOpen, setCweOpen] = useState(false);
+  const [cweCatOpen, setCweCatOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
 
   const activeFiltersCount = countActiveFilters(filters);
@@ -170,6 +174,21 @@ export function FiltersPanel({
     [filters, onFiltersChange]
   );
 
+  const handleCWECategoryToggle = useCallback(
+    (categoryId: string) => {
+      onFiltersChange({
+        ...filters,
+        cweCategory: filters.cweCategory === categoryId ? null : categoryId
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
+  // Get category name based on locale
+  const getCategoryName = (category: (typeof CWE_CATEGORIES)[number]) => {
+    return locale === 'pt-BR' ? category.namePtBR : category.nameEn;
+  };
+
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} data-tour='cve-filters'>
       <div
@@ -259,6 +278,62 @@ export function FiltersPanel({
             </div>
           </div>
 
+          {/* CWE Category Filter */}
+          <div className='space-y-3'>
+            <Label>{t('cweCategory')}</Label>
+            <Popover open={cweCatOpen} onOpenChange={setCweCatOpen}>
+              <PopoverTrigger asChild>
+                <Button variant='outline' className='w-full justify-start'>
+                  {filters.cweCategory
+                    ? getCategoryName(
+                        CWE_CATEGORIES.find(
+                          (c) => c.id === filters.cweCategory
+                        )!
+                      )
+                    : t('selectCWECategory')}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className='w-[320px] p-0' align='start'>
+                <Command>
+                  <CommandInput placeholder={t('searchCWECategory')} />
+                  <CommandList className='max-h-[280px]'>
+                    <CommandEmpty>{t('noCWECategoryFound')}</CommandEmpty>
+                    <CommandGroup>
+                      {CWE_CATEGORIES.map((category) => (
+                        <CommandItem
+                          key={category.id}
+                          onSelect={() => handleCWECategoryToggle(category.id)}
+                        >
+                          <div
+                            className={cn(
+                              'mr-2 flex h-4 w-4 items-center justify-center rounded-sm border',
+                              filters.cweCategory === category.id
+                                ? 'bg-primary text-primary-foreground'
+                                : 'opacity-50'
+                            )}
+                          >
+                            {filters.cweCategory === category.id && (
+                              <CheckIcon className='h-3 w-3' />
+                            )}
+                          </div>
+                          <div className='flex-1'>
+                            <span className='font-medium'>
+                              {getCategoryName(category)}
+                            </span>
+                            <p className='text-muted-foreground text-xs'>
+                              {category.cwes.slice(0, 4).join(', ')}
+                              {category.cwes.length > 4 && '...'}
+                            </p>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
           {/* CWE Filter */}
           <div className='space-y-3'>
             <Label>{t('cwe')}</Label>
@@ -270,10 +345,10 @@ export function FiltersPanel({
                     : t('selectCWE')}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className='w-[300px] p-0' align='start'>
+              <PopoverContent className='w-[380px] p-0' align='start'>
                 <Command>
                   <CommandInput placeholder={t('searchCWE')} />
-                  <CommandList className='max-h-[200px]'>
+                  <CommandList className='max-h-[280px]'>
                     <CommandEmpty>{t('noCWEFound')}</CommandEmpty>
                     <CommandGroup>
                       {filterOptions.cwes.map((cwe) => (
@@ -283,7 +358,7 @@ export function FiltersPanel({
                         >
                           <div
                             className={cn(
-                              'mr-2 flex h-4 w-4 items-center justify-center rounded-sm border',
+                              'mr-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
                               filters.cwes.includes(cwe.cwe_id)
                                 ? 'bg-primary text-primary-foreground'
                                 : 'opacity-50'
@@ -293,8 +368,10 @@ export function FiltersPanel({
                               <CheckIcon className='h-3 w-3' />
                             )}
                           </div>
-                          <span className='flex-1'>{cwe.cwe_id}</span>
-                          <span className='text-muted-foreground text-xs'>
+                          <span className='flex-1 truncate'>
+                            {getCWEDisplay(cwe.cwe_id)}
+                          </span>
+                          <span className='text-muted-foreground ml-2 shrink-0 text-xs'>
                             ({cwe.count.toLocaleString()})
                           </span>
                         </CommandItem>
@@ -520,6 +597,7 @@ function countActiveFilters(filters: SearchFilters): number {
   if (filters.cvssMin > 0 || filters.cvssMax < 10) count++;
   if (filters.severity.length > 0) count++;
   if (filters.cwes.length > 0) count++;
+  if (filters.cweCategory) count++;
   if (filters.hasExploit !== null) count++;
   if (filters.hasRepository !== null) count++;
   if (filters.hasCommitFix !== null) count++;

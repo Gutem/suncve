@@ -107,6 +107,9 @@ const searchParamsConfig = {
   // Repository filter
   repo_filter: parseAsString.withDefault(''),
 
+  // CWE Category filter
+  cwe_cat: parseAsString.withDefault(''),
+
   // Sorting
   sort: parseAsStringLiteral(sortFieldOptions).withDefault('date_published'),
   order: parseAsStringLiteral(sortOrderOptions).withDefault('desc'),
@@ -139,7 +142,8 @@ export function useSearchParams() {
       repoSizeMax: params.sizeMax,
       datePeriod: params.period as DatePeriod,
       customDate: params.date || null,
-      repository: params.repo_filter || null
+      repository: params.repo_filter || null,
+      cweCategory: params.cwe_cat || null
     }),
     [params]
   );
@@ -176,6 +180,7 @@ export function useSearchParams() {
         period: newFilters.datePeriod === 'all' ? null : newFilters.datePeriod,
         date: newFilters.customDate || null,
         repo_filter: newFilters.repository || null,
+        cwe_cat: newFilters.cweCategory || null,
         // Reset page when filters change
         page: 1
       });
