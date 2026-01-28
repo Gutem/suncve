@@ -114,7 +114,7 @@
       "description": "Search for vulnerabilities by CVE ID, vendor, product, or keywords in the description."
     },
     "cveFilters": {
-      "title": "Advanced Filters",
+      "title": "Filters",
       "description": "Refine your search using severity, CVSS score, CWE, programming language filters and more."
     },
     "cveStats": {
@@ -162,7 +162,7 @@
       "patchCommits": "Known fix commits"
     },
     "filters": {
-      "title": "Advanced Filters",
+      "title": "Filters",
       "clearAll": "Clear All",
       "cvssScore": "CVSS Score",
       "severity": "Severity",

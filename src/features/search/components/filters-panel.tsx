@@ -427,10 +427,11 @@ export function FiltersPanel({
                 </Badge>
                 {filters.datePeriod === 'custom' && (
                   <Input
-                    type='date'
+                    type='text'
+                    placeholder='2024, 2024-07, 2024-07-15'
                     value={filters.customDate || ''}
                     onChange={(e) => handleCustomDateChange(e.target.value)}
-                    className='w-auto'
+                    className='w-44'
                   />
                 )}
               </div>
