@@ -20,8 +20,63 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Resolve Base Path from GitHub Pages URL
+        env:
+          BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          echo "Detected Pages base_url: ${BASE_URL}"
+          BASE_PATH="$(python - <<'PY'
+import os
+from urllib.parse import urlparse
+u = os.environ.get("BASE_URL", "")
+p = urlparse(u).path.rstrip("/")
+print("" if p in ("", "/") else p)
+PY
+)"
+          echo "Using NEXT_PUBLIC_BASE_PATH=${BASE_PATH}"
+          echo "NEXT_PUBLIC_BASE_PATH=${BASE_PATH}" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SENTRY_DISABLED=true" >> "$GITHUB_ENV"
+
+      - name: Find Latest DB Snapshot Asset
+        id: snapshot
+        uses: actions/github-script@v7
         with:
-          lfs: true
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = "db-snapshots";
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            const snapshots = (release.data.assets || [])
+              .filter(a => /^snapshot-.*\.tar\.gz$/.test(a.name))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            if (snapshots.length === 0) {
+              core.setFailed("No snapshot asset found in release tag 'db-snapshots'. Run DB snapshot workflow first.");
+              return;
+            }
+
+            core.info(`Using snapshot: ${snapshots[0].name}`);
+            core.setOutput("asset_id", String(snapshots[0].id));
+            core.setOutput("asset_name", snapshots[0].name);
+
+      - name: Restore DB Files from Release Snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data public/db
+          curl -L \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ steps.snapshot.outputs.asset_id }}" \
+            -o /tmp/latest-db-snapshot.tar.gz
+          tar -xzf /tmp/latest-db-snapshot.tar.gz -C .
+          test -f public/db/manifest.json
+          test -f public/db/source_com_repositorios.sqlite.gz
+          echo "Restored snapshot: ${{ steps.snapshot.outputs.asset_name }}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -33,13 +88,7 @@ jobs:
         run: npm ci
 
       - name: Build
-        env:
-          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
-          NEXT_PUBLIC_SENTRY_DISABLED: true
         run: npm run build
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -56,4 +105,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
