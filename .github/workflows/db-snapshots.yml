@@ -1,0 +1,146 @@
+name: DB Snapshots (Incremental)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_batch_size:
+        description: "Batch size for repository verification"
+        required: false
+        default: "200"
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: db-snapshots
+  cancel-in-progress: false
+
+jobs:
+  update-db:
+    runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_TAG: db-snapshots
+      REPO_BATCH_SIZE: ${{ github.event.inputs.repo_batch_size || '200' }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests urllib3 beautifulsoup4 cvss
+
+      - name: Ensure Snapshot Release Exists
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.SNAPSHOT_TAG;
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              release = await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                name: "DB Snapshots",
+                body: "Rolling snapshots for incremental CVE DB state",
+                draft: false,
+                prerelease: false
+              });
+            }
+
+            const assets = (release.data.assets || [])
+              .filter(a => /^snapshot-.*\.tar\.gz$/.test(a.name))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            core.setOutput("release_id", String(release.data.id));
+            core.setOutput("latest_asset_id", assets[0] ? String(assets[0].id) : "");
+            core.setOutput("latest_asset_name", assets[0] ? assets[0].name : "");
+
+      - name: Restore Latest Snapshot
+        if: steps.release.outputs.latest_asset_id != ''
+        run: |
+          mkdir -p data public/db
+          curl -L \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ steps.release.outputs.latest_asset_id }}" \
+            -o /tmp/latest-snapshot.tar.gz
+          tar -xzf /tmp/latest-snapshot.tar.gz -C .
+          echo "Restored snapshot: ${{ steps.release.outputs.latest_asset_name }}"
+
+      - name: Prepare Directories
+        run: |
+          mkdir -p data public/db
+
+      - name: Incremental CVE Update
+        run: |
+          python scripts/create-manifest.py cves
+
+      - name: Incremental Repository Verification
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/create-manifest.py repos --batch-size "${REPO_BATCH_SIZE}"
+
+      - name: Generate DB Manifest
+        run: |
+          cp data/source.sqlite public/db/source_com_repositorios.sqlite
+          python scripts/create-manifest.py manifest \
+            --db-dir public/db \
+            --db-file source_com_repositorios.sqlite \
+            --manifest-base-url /db \
+            --compress-gzip
+
+      - name: Pack Snapshot
+        id: pack
+        run: |
+          SNAPSHOT_NAME="snapshot-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+          tar -czf "${SNAPSHOT_NAME}" \
+            data/source.sqlite \
+            public/db/manifest.json \
+            public/db/source_com_repositorios.sqlite.gz
+          echo "snapshot_name=${SNAPSHOT_NAME}" >> "$GITHUB_OUTPUT"
+          ls -lh "${SNAPSHOT_NAME}"
+
+      - name: Upload Snapshot Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.SNAPSHOT_TAG }}
+          files: ${{ steps.pack.outputs.snapshot_name }}
+          generate_release_notes: false
+
+      - name: Prune Old Snapshots (Keep 3)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.SNAPSHOT_TAG;
+            const keep = 3;
+
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            const snapshots = (release.data.assets || [])
+              .filter(a => /^snapshot-.*\.tar\.gz$/.test(a.name))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            const toDelete = snapshots.slice(keep);
+            for (const asset of toDelete) {
+              core.info(`Deleting old snapshot: ${asset.name} (${asset.id})`);
+              await github.rest.repos.deleteReleaseAsset({
+                owner,
+                repo,
+                asset_id: asset.id
+              });
+            }
