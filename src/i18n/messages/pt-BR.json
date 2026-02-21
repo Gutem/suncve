@@ -7,13 +7,19 @@
     "selectLanguage": "Selecione um idioma",
     "default": "Padrão",
     "scaled": "Escalonado",
-    "monospace": "Monospace"
+    "monospace": "Monospace",
+    "lastScan": "Último scan",
+    "cveRange": "Faixa CVE",
+    "cveStart": "CVE inicial",
+    "cveEnd": "CVE final"
   },
   "sidebar": {
     "menu": "Menu",
     "dashboard": "Dashboard",
     "cveSearch": "Busca de CVE",
-    "repositorySearch": "Busca de Repositório"
+    "repositorySearch": "Busca de Repositório",
+    "scanStatus": "Status do Scan",
+    "scanUnavailable": "Metadados indisponíveis"
   },
   "dashboard": {
     "welcome": "Olá, Bem-vindo de volta 👋",
@@ -84,6 +90,10 @@
     "navCveSearch": {
       "title": "Busca de CVE",
       "description": "Acesse a ferramenta de busca avançada para encontrar e filtrar vulnerabilidades específicas."
+    },
+    "scanInfo": {
+      "title": "Status do Scan",
+      "description": "Esta seção mostra quando o banco de vulnerabilidades foi escaneado pela última vez e qual a faixa de CVEs carregada neste build."
     },
     "search": {
       "title": "Busca Rápida",

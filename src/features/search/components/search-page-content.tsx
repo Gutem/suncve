@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { SQLiteProvider, useSQLite } from '@/lib/sqlite';
+import { withBasePath } from '@/lib/base-path';
 import { useCVESearch } from '@/lib/sqlite/use-cve-search';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useSearchParams } from '@/features/search/hooks';
@@ -18,9 +19,9 @@ import {
 } from '@/features/search/types';
 
 // Database manifest URL - uses OPFS caching and streaming decompression
-const DB_MANIFEST_URL = '/db/manifest.json';
+const DB_MANIFEST_URL = withBasePath('/db/manifest.json');
 // Fallback direct URL for uncompressed DB
-const DB_URL = '/db/source_com_repositorios.sqlite';
+const DB_URL = withBasePath('/db/source_com_repositorios.sqlite');
 // Debounce delay for search (ms) - 1 second for better UX
 const SEARCH_DEBOUNCE_MS = 1000;
 

@@ -79,6 +79,9 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ steps.release.outputs.latest_asset_id }}" \
             -o /tmp/latest-snapshot.tar.gz
           tar -xzf /tmp/latest-snapshot.tar.gz -C .
+          if [ ! -f data/source.sqlite ] && [ -f public/db/source_com_repositorios.sqlite.gz ]; then
+            gunzip -c public/db/source_com_repositorios.sqlite.gz > data/source.sqlite
+          fi
           echo "Restored snapshot: ${{ steps.release.outputs.latest_asset_name }}"
 
       - name: Prepare Directories
@@ -87,7 +90,7 @@ jobs:
 
       - name: Incremental CVE Update
         run: |
-          python scripts/create-manifest.py cves
+          python scripts/create-manifest.py cves --year-auto
 
       - name: Incremental Repository Verification
         env:
@@ -95,21 +98,41 @@ jobs:
         run: |
           python scripts/create-manifest.py repos --batch-size "${REPO_BATCH_SIZE}"
 
-      - name: Generate DB Manifest
+      - name: Build DB Artifacts
         run: |
-          cp data/source.sqlite public/db/source_com_repositorios.sqlite
-          python scripts/create-manifest.py manifest \
-            --db-dir public/db \
-            --db-file source_com_repositorios.sqlite \
-            --manifest-base-url /db \
-            --compress-gzip
+          bash scripts/build-db-artifacts.sh
+
+      - name: Validate Snapshot DB Size
+        env:
+          MIN_CVE_COUNT: "1000"
+        run: |
+          total=$(sqlite3 data/source.sqlite "SELECT COUNT(*) FROM cves;")
+          echo "[INFO] Total CVEs in snapshot candidate: ${total}"
+          if [ "${total}" -lt "${MIN_CVE_COUNT}" ]; then
+            echo "[ERROR] Snapshot aborted: only ${total} CVEs (< ${MIN_CVE_COUNT}). Likely stale/incomplete DB state."
+            exit 1
+          fi
+
+      - name: Read Manifest Range
+        id: manifest_range
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let data = {};
+            if (fs.existsSync('public/db/manifest.json')) {
+              data = JSON.parse(fs.readFileSync('public/db/manifest.json', 'utf8'));
+            }
+            const cveRange = ((data.scan_metadata || {}).cve_range || {});
+            const tokenize = s => (s || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+            core.setOutput('from_token', tokenize(cveRange.from));
+            core.setOutput('to_token', tokenize(cveRange.to));
 
       - name: Pack Snapshot
         id: pack
         run: |
-          SNAPSHOT_NAME="snapshot-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+          SNAPSHOT_NAME="snapshot-${{ steps.manifest_range.outputs.from_token }}-to-${{ steps.manifest_range.outputs.to_token }}-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
           tar -czf "${SNAPSHOT_NAME}" \
-            data/source.sqlite \
             public/db/manifest.json \
             public/db/source_com_repositorios.sqlite.gz
           echo "snapshot_name=${SNAPSHOT_NAME}" >> "$GITHUB_OUTPUT"

@@ -119,30 +119,31 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
      * TOUR FLOW (storytelling):
      * 0. Menu (sidebar)
      * 1. Botão Dashboard no menu (sidebar)
-     * 2. Stats cards (dashboard content)
-     * 3. Charts (dashboard content)
-     * 4. Botão Busca de CVE no menu (sidebar)
-     * 5. Busca de CVE (search page content)
-     * 6. Filtros (search page content)
-     * 7. Stats (search page content)
-     * 8. Resultados (search page content)
-     * 9. CVE Details (drawer - clica na primeira linha)
-     * 10. Idioma (sidebar)
-     * 11. Tema (sidebar)
-     * 12. Busca rápida (content)
-     * 13. Botão claro/escuro (content)
+     * 2. Status do scan (sidebar)
+     * 3. Stats cards (dashboard content)
+     * 4. Charts (dashboard content)
+     * 5. Botão Busca de CVE no menu (sidebar)
+     * 6. Busca de CVE (search page content)
+     * 7. Filtros (search page content)
+     * 8. Stats (search page content)
+     * 9. Resultados (search page content)
+     * 10. CVE Details (drawer - clica na primeira linha)
+     * 11. Idioma (sidebar)
+     * 12. Tema (sidebar)
+     * 13. Busca rápida (content)
+     * 14. Botão claro/escuro (content)
      */
 
     // Steps que precisam do sidebar visível (mobile)
-    const sidebarStepIndices = [0, 1, 4, 10, 11];
+    const sidebarStepIndices = [0, 1, 2, 5, 11, 12];
 
     // Navegação entre páginas
     const navDashboardStep = 1;
-    const firstDashboardContentStep = 2;
-    const navCveSearchStep = 4;
-    const firstCveSearchStep = 5;
-    const cveResultsStep = 8;
-    const cveDetailsStep = 9;
+    const firstDashboardContentStep = 3;
+    const navCveSearchStep = 5;
+    const firstCveSearchStep = 6;
+    const cveResultsStep = 9;
+    const cveDetailsStep = 10;
 
     const progressOf = t('buttons.progressOf');
 
@@ -164,6 +165,15 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
           popover: {
             title: t('navDashboard.title'),
             description: t('navDashboard.description'),
+            side: 'right',
+            align: 'center'
+          }
+        },
+        {
+          element: '[data-tour="scan-info"]',
+          popover: {
+            title: t('scanInfo.title'),
+            description: t('scanInfo.description'),
             side: 'right',
             align: 'center'
           }

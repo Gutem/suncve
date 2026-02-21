@@ -32,6 +32,7 @@ export function LanguageSelector() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <SidebarMenuButton
+          id='language-selector-trigger'
           size='lg'
           className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
           tooltip={t('language')}

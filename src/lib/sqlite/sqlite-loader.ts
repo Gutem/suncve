@@ -5,6 +5,7 @@
  * Utilitários para baixar, descomprimir e abrir um SQLite grande no navegador
  * usando sql.js (WASM). Mantém o arquivo no OPFS quando disponível.
  */
+import { withBasePath } from '@/lib/base-path';
 
 const VERSION_KEY = 'sqlite.version';
 const FILE_KEY = 'sqlite.file';
@@ -66,7 +67,18 @@ export async function loadManifest(url: string): Promise<Manifest> {
   const res = await fetch(url, { cache: 'no-cache' });
   if (!res.ok)
     throw new Error(`Falha ao baixar manifest ${url}: ${res.status}`);
-  return res.json();
+  const manifest = (await res.json()) as Manifest;
+  const sources = manifest?.sources;
+  if (sources?.gzip?.url) {
+    sources.gzip.url = withBasePath(sources.gzip.url);
+  }
+  if (sources?.brotli?.url) {
+    sources.brotli.url = withBasePath(sources.brotli.url);
+  }
+  if (sources?.br?.url) {
+    sources.br.url = withBasePath(sources.br.url);
+  }
+  return manifest;
 }
 
 /**

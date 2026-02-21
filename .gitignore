@@ -49,3 +49,7 @@ next-env.d.ts
 
 public/db/
 .cursor/
+
+# local snapshot pipeline artifacts
+data/
+snapshot-*.tar.gz

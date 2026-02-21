@@ -6,6 +6,17 @@
     "import/no-unresolved": "off",
     "import/named": "off",
     "no-console": "warn",
-    "react-hooks/exhaustive-deps": "warn"
+    "react-hooks/exhaustive-deps": "warn",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.name='fetch'] > Literal.arguments:first-child[value=/^\\/(?!\\/)/]",
+        "message": "Use withBasePath('/...') for relative root URLs in fetch() to support Next.js basePath."
+      },
+      {
+        "selector": "CallExpression[callee.name='fetch'] > TemplateLiteral.arguments:first-child[quasis.0.value.raw=/^\\/(?!\\/)/]",
+        "message": "Use withBasePath('/...') for relative root URLs in fetch() to support Next.js basePath."
+      }
+    ]
   }
 }

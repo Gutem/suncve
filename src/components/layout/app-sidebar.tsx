@@ -17,6 +17,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarSeparator,
   SidebarRail
 } from '@/components/ui/sidebar';
 import { navItems } from '@/config/nav-config';
@@ -31,6 +32,8 @@ import { ThemeSelectorSidebar } from '../theme-selector-sidebar';
 import { LanguageSelector } from '../language-selector';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
+import { withBasePath } from '@/lib/base-path';
+import { DBScanSidebarInfo } from '@/components/db-scan-sidebar-info';
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -50,7 +53,7 @@ export default function AppSidebar() {
             <SidebarMenuButton size='lg'>
               <div className='flex aspect-square size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg'>
                 <Image
-                  src='/logo.png'
+                  src={withBasePath('/logo.png')}
                   alt='SunCVE Logo'
                   width={32}
                   height={32}
@@ -136,6 +139,10 @@ export default function AppSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarSeparator />
+          <SidebarMenuItem>
+            <DBScanSidebarInfo />
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <LanguageSelector />
           </SidebarMenuItem>

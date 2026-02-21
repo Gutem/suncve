@@ -1171,6 +1171,63 @@ class CVElistV5:
             if all_url and delta_url:
                 break
         return all_url, delta_url
+
+    @staticmethod
+    def _extract_year_from_cve_id(cve_id: str | None) -> int | None:
+        if not cve_id:
+            return None
+        parts = cve_id.upper().split("-")
+        if len(parts) != 3 or parts[0] != "CVE":
+            return None
+        try:
+            return int(parts[1])
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _list_years_in_extracted_dataset(folderDatabase: Path) -> list[int]:
+        years: set[int] = set()
+        for file_path in sorted(folderDatabase.rglob("CVE-*.json")):
+            year = CVElistV5._extract_year_from_cve_id(file_path.stem)
+            if year is not None:
+                years.add(year)
+        return sorted(years)
+
+    def _resolve_target_year(
+        self,
+        db: "databaseSQLite",
+        folderDatabase: Path,
+        year: int | None = None,
+        year_auto: bool = False,
+    ) -> int | None:
+        if year is not None and year_auto:
+            raise ValueError("--year and --year-auto cannot be used together")
+        if year is not None:
+            return year
+        if not year_auto:
+            return None
+
+        years = self._list_years_in_extracted_dataset(folderDatabase)
+        if not years:
+            raise RuntimeError("No CVE years found in extracted dataset")
+
+        progress = db.getSourceInfo("cvelistV5-year-bootstrap")
+        next_year = None
+        if progress:
+            try:
+                next_year = int(progress.get("last_release_file") or "")
+            except (TypeError, ValueError):
+                next_year = None
+
+        if next_year is None:
+            return years[0]
+        if next_year in years:
+            return next_year
+
+        for y in years:
+            if y > next_year:
+                return y
+        return years[-1]
     
     def listReleases(self) -> dict:
         """
@@ -1651,6 +1708,7 @@ class CVElistV5:
         min_pending_repos: int = 0,
         require_complete_cve: bool = False,
         target_complete_cves: int = 1,
+        year: int | None = None,
     ) -> dict:
         """
         Converte JSONs de CVE para SQLite.
@@ -1677,6 +1735,10 @@ class CVElistV5:
                     
                     # Ignora RESERVED e REJECTED
                     if formattedData and formattedData.get("state") not in ["RESERVED", "REJECTED"]:
+                        if year is not None:
+                            cve_year = self._extract_year_from_cve_id(formattedData.get("cve_id"))
+                            if cve_year != year:
+                                continue
                         scanned += 1
                         references = formattedData.get("references", [])
                         complement = db.complementCVE(
@@ -1761,6 +1823,8 @@ class CVElistV5:
         require_complete_cve: bool = False,
         target_complete_cves: int = 1,
         max_deltas: int = 5,
+        year: int | None = None,
+        year_auto: bool = False,
     ) -> None:
         from datetime import datetime, timezone
         import shutil
@@ -1952,6 +2016,15 @@ class CVElistV5:
             folderDatabase = self.unzipDatabase(pathFileZip)
             print(f"[INFO] Database extracted to: {folderDatabase}")
             
+            target_year = self._resolve_target_year(
+                db=db,
+                folderDatabase=folderDatabase,
+                year=year,
+                year_auto=year_auto,
+            )
+            if target_year is not None:
+                print(f"[INFO] Year filter enabled. Importing only CVEs from year {target_year}")
+
             # Convert JSONs to SQLite
             print("[INFO] Converting JSON to SQLite...")
             result = self.convertJSONToSQLite(
@@ -1961,19 +2034,59 @@ class CVElistV5:
                 min_pending_repos=min_pending_repos,
                 require_complete_cve=require_complete_cve,
                 target_complete_cves=target_complete_cves,
+                year=target_year,
             )
             total_count = result["processed"]
             total_scanned = result["scanned"]
             total_skipped_incomplete = result["skipped_incomplete"]
             
-            # Define base_release_file e last_release_file como o mesmo (primeira vez)
-            db.updateSource(
-                source_name="cvelistV5",
-                last_verified=start_time,
-                last_updated=release_info.get("updated_at", ""),
-                last_release_file=download_url,
-                base_release_file=download_url
-            )
+            if year_auto:
+                years = self._list_years_in_extracted_dataset(folderDatabase)
+                if not years:
+                    raise RuntimeError("No CVE years found while persisting year-auto progress")
+                if target_year not in years:
+                    raise RuntimeError(
+                        f"Resolved target year {target_year} not found in extracted dataset years={years}"
+                    )
+                idx = years.index(target_year)
+                next_year = years[idx + 1] if idx + 1 < len(years) else None
+                if next_year is None:
+                    db.updateSource(
+                        source_name="cvelistV5",
+                        last_verified=start_time,
+                        last_updated=release_info.get("updated_at", ""),
+                        last_release_file=download_url,
+                        base_release_file=download_url
+                    )
+                    db.updateSource(
+                        source_name="cvelistV5-year-bootstrap",
+                        last_verified=start_time,
+                        last_updated=release_info.get("updated_at", ""),
+                        last_release_file="completed",
+                        base_release_file="completed",
+                    )
+                    print("[INFO] Yearly bootstrap completed. Next runs can use delta mode.")
+                else:
+                    db.updateSource(
+                        source_name="cvelistV5-year-bootstrap",
+                        last_verified=start_time,
+                        last_updated=release_info.get("updated_at", ""),
+                        last_release_file=str(next_year),
+                        base_release_file=str(target_year),
+                    )
+                    print(
+                        f"[INFO] Yearly bootstrap progress saved. "
+                        f"Next run with --year-auto will process year {next_year}."
+                    )
+            else:
+                # Define base_release_file e last_release_file como o mesmo (primeira vez)
+                db.updateSource(
+                    source_name="cvelistV5",
+                    last_verified=start_time,
+                    last_updated=release_info.get("updated_at", ""),
+                    last_release_file=download_url,
+                    base_release_file=download_url
+                )
             
             # Cleanup
             if pathFileZip.exists():
@@ -2409,6 +2522,17 @@ def main() -> None:
         help="Use latest delta package on first cves run instead of full package"
     )
     parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        help="Import only CVEs from a specific year in first full run (e.g. 1999)"
+    )
+    parser.add_argument(
+        "--year-auto",
+        action="store_true",
+        help="On first full run, import only one year per execution and persist progress to next year"
+    )
+    parser.add_argument(
         "--db-dir",
         default="public/db",
         help="Directory containing DB files for manifest generation (default: public/db)"
@@ -2450,6 +2574,10 @@ def main() -> None:
         raise SystemExit("[ERROR] --target-complete-cves must be greater than zero")
     if args.max_deltas <= 0:
         raise SystemExit("[ERROR] --max-deltas must be greater than zero")
+    if args.year is not None and args.year <= 0:
+        raise SystemExit("[ERROR] --year must be greater than zero")
+    if args.year is not None and args.year_auto:
+        raise SystemExit("[ERROR] --year and --year-auto cannot be used together")
 
     if args.github_token and args.github_token != os.environ.get("GITHUB_TOKEN"):
         print("[WARN] Avoid passing token by CLI in CI. Prefer GITHUB_TOKEN env var.")
@@ -2463,6 +2591,8 @@ def main() -> None:
             require_complete_cve=args.require_complete_cve,
             target_complete_cves=args.target_complete_cves,
             max_deltas=args.max_deltas,
+            year=args.year,
+            year_auto=args.year_auto,
         )
 
     if args.command == "cves-ids":

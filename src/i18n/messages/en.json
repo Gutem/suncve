@@ -7,13 +7,19 @@
     "selectLanguage": "Select a language",
     "default": "Default",
     "scaled": "Scaled",
-    "monospace": "Monospace"
+    "monospace": "Monospace",
+    "lastScan": "Last scan",
+    "cveRange": "CVE range",
+    "cveStart": "Initial CVE",
+    "cveEnd": "Final CVE"
   },
   "sidebar": {
     "menu": "Menu",
     "dashboard": "Dashboard",
     "cveSearch": "CVE Search",
-    "repositorySearch": "Repository Search"
+    "repositorySearch": "Repository Search",
+    "scanStatus": "Scan Status",
+    "scanUnavailable": "Metadata unavailable"
   },
   "dashboard": {
     "welcome": "Hi, Welcome back 👋",
@@ -84,6 +90,10 @@
     "navCveSearch": {
       "title": "CVE Search",
       "description": "Access the advanced search tool to find and filter specific vulnerabilities."
+    },
+    "scanInfo": {
+      "title": "Scan Status",
+      "description": "This section shows when the vulnerability database was last scanned and the current CVE range loaded in this build."
     },
     "search": {
       "title": "Quick Search",
