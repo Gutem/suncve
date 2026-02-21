@@ -8,10 +8,6 @@ import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
 import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons';
 
-// Custom icons that meet the DayPicker requirements
-const LeftIcon = () => <ChevronLeftIcon className='size-4' />;
-const RightIcon = () => <ChevronRightIcon className='size-4' />;
-
 function Calendar({
   className,
   classNames,
@@ -65,8 +61,12 @@ function Calendar({
         ...classNames
       }}
       components={{
-        IconLeft: LeftIcon,
-        IconRight: RightIcon
+        Chevron: ({ orientation }) =>
+          orientation === 'left' ? (
+            <ChevronLeftIcon className='size-4' />
+          ) : (
+            <ChevronRightIcon className='size-4' />
+          )
       }}
       {...props}
     />
