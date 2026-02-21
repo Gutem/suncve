@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -21,26 +21,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Pages
-        id: pages
-        uses: actions/configure-pages@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
-      - name: Resolve Base Path from GitHub Pages URL
-        env:
-          BASE_URL: ${{ steps.pages.outputs.base_url }}
-        run: |
-          echo "Detected Pages base_url: ${BASE_URL}"
-          BASE_PATH="$(python - <<'PY'
-import os
-from urllib.parse import urlparse
-u = os.environ.get("BASE_URL", "")
-p = urlparse(u).path.rstrip("/")
-print("" if p in ("", "/") else p)
-PY
-)"
-          echo "Using NEXT_PUBLIC_BASE_PATH=${BASE_PATH}"
-          echo "NEXT_PUBLIC_BASE_PATH=${BASE_PATH}" >> "$GITHUB_ENV"
-          echo "NEXT_PUBLIC_SENTRY_DISABLED=true" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get base path
+        id: pages
+        uses: actions/configure-pages@v4
 
       - name: Find Latest DB Snapshot Asset
         id: snapshot
@@ -78,16 +70,13 @@ PY
           test -f public/db/source_com_repositorios.sqlite.gz
           echo "Restored snapshot: ${{ steps.snapshot.outputs.asset_name }}"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Build
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_SENTRY_DISABLED: "true"
         run: npm run build
 
       - name: Upload artifact

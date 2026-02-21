@@ -1143,6 +1143,34 @@ class CVElistV5:
     def __init__(self):
         print(f"[DEBUG] Project root: {self.PROJECT_ROOT}")
         print(f"[DEBUG] Data directory: {self.DATA_DIR}")
+
+    @staticmethod
+    def _detect_release_asset_type(asset: dict) -> str | None:
+        """
+        Classifica asset de release como 'all' ou 'delta' com matching tolerante.
+        """
+        name = str(asset.get("name", "")).lower()
+        download_url = str(asset.get("browser_download_url", "")).lower()
+        haystack = f"{name} {download_url}"
+        if "all_cves" in haystack or "all-cves" in haystack:
+            return "all"
+        if "delta_cves" in haystack or "delta-cves" in haystack:
+            return "delta"
+        return None
+
+    def _extract_release_asset_urls(self, release_data: dict) -> tuple[str | None, str | None]:
+        all_url = None
+        delta_url = None
+        for asset in release_data.get("assets", []):
+            download_url = asset.get("browser_download_url", "")
+            asset_type = self._detect_release_asset_type(asset)
+            if asset_type == "all" and not all_url:
+                all_url = download_url
+            elif asset_type == "delta" and not delta_url:
+                delta_url = download_url
+            if all_url and delta_url:
+                break
+        return all_url, delta_url
     
     def listReleases(self) -> dict:
         """
@@ -1160,19 +1188,40 @@ class CVElistV5:
         response.raise_for_status()
         
         release_data = response.json()
+        latest_all_url, latest_delta_url = self._extract_release_asset_urls(release_data)
         result = {
-            "all_cves_url": None,
-            "delta_cves_url": None,
+            "all_cves_url": latest_all_url,
+            "delta_cves_url": latest_delta_url,
             "created_at": release_data.get("created_at"),
             "updated_at": release_data.get("published_at"),  # published_at é mais confiável
         }
-        
-        for asset in release_data.get("assets", []):
-            download_url = asset.get("browser_download_url", "")
-            if "_all_CVEs_" in download_url:
-                result["all_cves_url"] = download_url
-            elif "_delta_CVEs_" in download_url:
-                result["delta_cves_url"] = download_url
+
+        # Fallback: em alguns snapshots o "latest" não traz ambos os pacotes.
+        # Busca algumas releases recentes para completar URLs ausentes.
+        if not result["all_cves_url"] or not result["delta_cves_url"]:
+            page = 1
+            per_page = 30
+            while page <= 3 and (not result["all_cves_url"] or not result["delta_cves_url"]):
+                page_url = (
+                    f"https://api.github.com/repos/CVEProject/cvelistV5/releases"
+                    f"?per_page={per_page}&page={page}"
+                )
+                page_response = http_get(page_url)
+                page_response.raise_for_status()
+                releases = page_response.json()
+                if not releases:
+                    break
+                for release in releases:
+                    all_url, delta_url = self._extract_release_asset_urls(release)
+                    if all_url and not result["all_cves_url"]:
+                        result["all_cves_url"] = all_url
+                    if delta_url and not result["delta_cves_url"]:
+                        result["delta_cves_url"] = delta_url
+                    if result["all_cves_url"] and result["delta_cves_url"]:
+                        break
+                if len(releases) < per_page:
+                    break
+                page += 1
         
         return result
     
@@ -1228,9 +1277,8 @@ class CVElistV5:
                 # Coleta delta se tiver URL
                 delta_url = None
                 for asset in release.get("assets", []):
-                    download_url = asset.get("browser_download_url", "")
-                    if "_delta_CVEs_" in download_url:
-                        delta_url = download_url
+                    if self._detect_release_asset_type(asset) == "delta":
+                        delta_url = asset.get("browser_download_url", "")
                         break
                 
                 if delta_url:
@@ -1275,12 +1323,11 @@ class CVElistV5:
             for release in releases:
                 tag = release.get("tag_name")
                 for asset in release.get("assets", []):
-                    download_url = asset.get("browser_download_url", "")
-                    if "_delta_CVEs_" in download_url:
+                    if self._detect_release_asset_type(asset) == "delta":
                         deltas.append(
                             {
                                 "tag_name": tag,
-                                "delta_url": download_url,
+                                "delta_url": asset.get("browser_download_url", ""),
                                 "published_at": release.get("published_at"),
                             }
                         )
