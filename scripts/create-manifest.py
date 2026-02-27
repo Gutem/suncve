@@ -947,16 +947,22 @@ class databaseSQLite:
         print(f"[INFO] Updated commits_fix for {count} repositories total")
         return count
 
+    def _normalizeUrlForCache(self, url: str) -> str:
+        """Remove fragmento (#section) da URL para evitar verificar o mesmo recurso múltiplas vezes."""
+        fragment_pos = url.find('#')
+        return url[:fragment_pos] if fragment_pos != -1 else url
+
     def getUrlCache(self, url: str) -> bool | None:
         """
         Retorna o resultado do cache ou None se não existir.
-        
+
         Args:
             url: URL a verificar no cache
-            
+
         Returns:
             True se tem exploit, False se não tem, None se não está no cache
         """
+        url = self._normalizeUrlForCache(url)
         self.cursor.execute("SELECT has_exploit FROM url_cache WHERE url = ?", (url,))
         row = self.cursor.fetchone()
         return row[0] if row else None
@@ -964,11 +970,12 @@ class databaseSQLite:
     def setUrlCache(self, url: str, has_exploit: bool) -> None:
         """
         Salva resultado da verificação de URL no cache.
-        
+
         Args:
             url: URL verificada
             has_exploit: True se contém exploit, False caso contrário
         """
+        url = self._normalizeUrlForCache(url)
         self.cursor.execute("""
         INSERT OR REPLACE INTO url_cache (url, has_exploit, verified_at)
         VALUES (?, ?, ?)
@@ -1024,11 +1031,12 @@ class databaseSQLite:
                         complementData["exists_exploit"] = True
                         complementData["list_exploit"].append(url)
                 else:
-                    # Não está no cache, faz a verificação
+                    # Não está no cache, faz a verificação (usa URL sem fragmento)
+                    url_to_verify = self._normalizeUrlForCache(url)
                     try:
-                        result = findExploits().run(url)
+                        result = findExploits().run(url_to_verify)
                     except Exception as e:
-                        print(f"[WARN] Exploit verification failed for {url}: {e}")
+                        print(f"[WARN] Exploit verification failed for {url_to_verify}: {e}")
                         result = False
                     self.setUrlCache(url, result)
                     if result:
@@ -1545,11 +1553,17 @@ class CVElistV5:
     def unzipDatabase(self, zip_file: Path) -> Path | None:
         """
         Extrai um arquivo zip.
-        
+
         Returns:
-            Path da pasta extraída, ou None se o zip estiver vazio
+            Path da pasta extraída, ou None se o zip estiver vazio ou inválido
         """
         extract_to = zip_file.parent
+        try:
+            zip_ref_check = zipfile.ZipFile(zip_file, "r")
+            zip_ref_check.close()
+        except zipfile.BadZipFile:
+            print(f"[WARN] Invalid or empty zip file (skipping delta): {zip_file}")
+            return None
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             file_list = zip_ref.namelist()
             
@@ -2139,6 +2153,8 @@ class findExploits:
     
     # EM um futuro quando for acessar todos os blogs isso será utilizado
     DENYLIST_URLS = [
+        "plugins.trac.wordpress.org/",  # código-fonte de plugins WP (arquivo vulnerável / patch), nunca exploit
+        "plugins.svn.wordpress.org/",   # repositório SVN bruto de plugins WP, nunca exploit
         "zerodayinitiative.com/",
         "snyk.io/",
         "chromium.org/",
