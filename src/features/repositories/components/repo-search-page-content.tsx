@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { SQLiteProvider, useSQLite } from '@/lib/sqlite';
-import { withBasePath } from '@/lib/base-path';
+import { DB_MANIFEST_URL, DB_FALLBACK_URL } from '@/lib/db-config';
 import { useRepositorySearch } from '@/lib/sqlite/use-repository-search';
 import { useDebounce } from '@/hooks/use-debounce';
 import { SearchBar } from '@/features/search/components/search-bar';
@@ -20,10 +20,6 @@ import {
   defaultRepositoryFilters
 } from '@/features/search/types';
 
-// Database manifest URL - uses OPFS caching and streaming decompression
-const DB_MANIFEST_URL = withBasePath('/db/manifest.json');
-// Fallback direct URL for uncompressed DB
-const DB_URL = withBasePath('/db/source_com_repositorios.sqlite');
 // Debounce delay for search (ms) - 1 second for better UX
 const SEARCH_DEBOUNCE_MS = 1000;
 
@@ -84,7 +80,7 @@ function RepositorySearchPageContentInner() {
       loadDatabaseWithManifest(DB_MANIFEST_URL).catch(() => {
         // Fallback to direct URL if manifest doesn't exist
         console.warn('Manifest not found, loading directly from URL');
-        loadDatabase(DB_URL);
+        loadDatabase(DB_FALLBACK_URL);
       });
     }
   }, [isReady, isLoading, error, loadDatabase, loadDatabaseWithManifest]);
@@ -160,7 +156,7 @@ function RepositorySearchPageContentInner() {
         isLoading={isLoading}
         progress={progress}
         error={error}
-        onRetry={() => loadDatabase(DB_URL)}
+        onRetry={() => loadDatabase(DB_FALLBACK_URL)}
       />
     );
   }

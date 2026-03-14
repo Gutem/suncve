@@ -69,14 +69,20 @@ export async function loadManifest(url: string): Promise<Manifest> {
     throw new Error(`Falha ao baixar manifest ${url}: ${res.status}`);
   const manifest = (await res.json()) as Manifest;
   const sources = manifest?.sources;
+
+  // Resolve source URLs: absolute URLs (http/https) are kept as-is,
+  // relative URLs get the site base path prepended.
+  const resolveUrl = (u: string) =>
+    /^https?:\/\//.test(u) ? u : withBasePath(u);
+
   if (sources?.gzip?.url) {
-    sources.gzip.url = withBasePath(sources.gzip.url);
+    sources.gzip.url = resolveUrl(sources.gzip.url);
   }
   if (sources?.brotli?.url) {
-    sources.brotli.url = withBasePath(sources.brotli.url);
+    sources.brotli.url = resolveUrl(sources.brotli.url);
   }
   if (sources?.br?.url) {
-    sources.br.url = withBasePath(sources.br.url);
+    sources.br.url = resolveUrl(sources.br.url);
   }
   return manifest;
 }

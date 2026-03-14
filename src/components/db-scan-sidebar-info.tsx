@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { SidebarMenuButton, useSidebar } from '@/components/ui/sidebar';
-import { withBasePath } from '@/lib/base-path';
+import { DB_MANIFEST_URL } from '@/lib/db-config';
 
 type ScanMetadata = {
   scanned_at?: string | null;
@@ -20,8 +20,6 @@ type DBManifest = {
   generated_at?: string;
   scan_metadata?: ScanMetadata;
 };
-
-const DB_MANIFEST_URL = withBasePath('/db/manifest.json');
 
 function formatUtcDate(value: string | null | undefined, locale: string): string {
   if (!value) return '-';

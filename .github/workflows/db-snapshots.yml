@@ -99,6 +99,8 @@ jobs:
           python scripts/create-manifest.py repos --batch-size "${REPO_BATCH_SIZE}"
 
       - name: Build DB Artifacts
+        env:
+          MANIFEST_BASE_URL: "https://github.com/${{ github.repository }}/releases/download/${{ env.SNAPSHOT_TAG }}"
         run: |
           bash scripts/build-db-artifacts.sh
 
@@ -167,3 +169,13 @@ jobs:
                 asset_id: asset.id
               });
             }
+
+      - name: Publish DB Files to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$SNAPSHOT_TAG" \
+            public/db/manifest.json \
+            public/db/source_com_repositorios.sqlite.gz \
+            --repo "${{ github.repository }}" \
+            --clobber
