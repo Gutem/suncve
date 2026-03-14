@@ -47,13 +47,99 @@ jobs:
           echo "base_path=${BASE_PATH}" >> "$GITHUB_OUTPUT"
           echo "Using base path: ${BASE_PATH}"
 
+      - name: Find Latest DB Snapshot Asset
+        id: snapshot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = "db-snapshots";
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            const snapshots = (release.data.assets || [])
+              .filter(a => /^snapshot-.*\.tar\.gz$/.test(a.name))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            if (snapshots.length === 0) {
+              core.setFailed("No snapshot asset found in release tag 'db-snapshots'. Run DB snapshot workflow first.");
+              return;
+            }
+
+            core.info(`Using snapshot: ${snapshots[0].name}`);
+            core.setOutput("asset_id", String(snapshots[0].id));
+            core.setOutput("asset_name", snapshots[0].name);
+
+      - name: Restore DB Files from Release Snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data public/db
+          curl -L \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/assets/${{ steps.snapshot.outputs.asset_id }}" \
+            -o /tmp/latest-db-snapshot.tar.gz
+          tar -xzf /tmp/latest-db-snapshot.tar.gz -C .
+          test -f public/db/manifest.json
+          test -f public/db/source_com_repositorios.sqlite.gz
+          echo "Restored snapshot: ${{ steps.snapshot.outputs.asset_name }}"
+
+      - name: Print Restored DB Metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest_path = Path("public/db/manifest.json")
+          if not manifest_path.exists():
+              raise SystemExit("manifest.json not found after snapshot restore")
+
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          scan = manifest.get("scan_metadata") or {}
+          cve_range = scan.get("cve_range") or {}
+          source = scan.get("source") or {}
+
+          print("[INFO] Manifest version:", manifest.get("version"))
+          print("[INFO] Manifest generated_at:", manifest.get("generated_at"))
+          print("[INFO] Scan last_verified:", source.get("last_verified"))
+          print("[INFO] Scan last_updated:", source.get("last_updated"))
+          print("[INFO] CVE range:", cve_range.get("from"), "->", cve_range.get("to"))
+          print("[INFO] Total CVEs:", scan.get("total_cves"))
+          PY
+
+      - name: Validate Restored DB Before Build
+        env:
+          MIN_CVE_COUNT: "1000"
+        run: |
+          python - <<'PY'
+          import gzip
+          import tempfile
+          import sqlite3
+          import os
+          from pathlib import Path
+
+          min_cves = int(os.environ.get("MIN_CVE_COUNT", "1000"))
+          gzip_path = Path("public/db/source_com_repositorios.sqlite.gz")
+          with tempfile.NamedTemporaryFile(suffix=".sqlite") as tmp:
+              with gzip.open(gzip_path, "rb") as f_src, open(tmp.name, "wb") as f_dst:
+                  f_dst.write(f_src.read())
+              conn = sqlite3.connect(tmp.name)
+              cur = conn.cursor()
+              total = cur.execute("SELECT COUNT(*) FROM cves").fetchone()[0]
+              conn.close()
+
+          print(f"[INFO] Restored DB CVE count (from gzip): {total}")
+          if total < min_cves:
+              raise SystemExit(
+                  f"[ERROR] Deploy blocked: restored DB has only {total} CVEs (< {min_cves})."
+              )
+          PY
+
       - name: Build
         env:
           SITE_URL: ${{ steps.pages.outputs.base_url }}
           BASE_PATH: ${{ steps.basepath.outputs.base_path }}
           PUBLIC_BASE_PATH: ${{ steps.basepath.outputs.base_path }}
           NEXT_PUBLIC_BASE_PATH: ${{ steps.basepath.outputs.base_path }}
-          NEXT_PUBLIC_DB_RELEASE_URL: "https://github.com/${{ github.repository }}/releases/download/db-snapshots"
           NEXT_PUBLIC_SENTRY_DISABLED: "true"
         run: npm run build
 
