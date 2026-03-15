@@ -23,6 +23,12 @@ const SEARCH_DEBOUNCE_MS = 1000;
 
 function SearchPageContentInner() {
   const t = useTranslations('search');
+
+  // Set page title
+  useEffect(() => {
+    document.title = 'CVE Search | SunCVE';
+  }, []);
+
   const {
     isReady,
     isLoading,

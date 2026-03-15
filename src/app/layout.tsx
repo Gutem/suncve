@@ -20,7 +20,14 @@ const META_THEME_COLORS = {
 
 export const metadata: Metadata = {
   title: 'SunCVE',
-  description: 'SunCVE Dashboard'
+  description: 'SunCVE Dashboard',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '48x48' },
+      { url: '/logo.png', type: 'image/png', sizes: '512x512' }
+    ],
+    apple: '/logo.png'
+  }
 };
 
 export const viewport: Viewport = {

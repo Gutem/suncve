@@ -7,6 +7,7 @@ export const CWE_NAMES: Record<string, string> = {
   'CWE-79': 'Cross-site Scripting (XSS)',
   'CWE-89': 'SQL Injection',
   'CWE-94': 'Code Injection',
+  'CWE-98': 'Local File Inclusion',
   'CWE-119': 'Buffer Overflow',
   'CWE-120': 'Classic Buffer Overflow',
   'CWE-121': 'Stack-based Buffer Overflow',
@@ -84,7 +85,7 @@ export const CWE_CATEGORIES: CWECategory[] = [
     name: 'Injection',
     nameEn: 'Injection Attacks',
     namePtBR: 'Ataques de Injeção',
-    cwes: ['CWE-89', 'CWE-77', 'CWE-78', 'CWE-94', 'CWE-611', 'CWE-917'],
+    cwes: ['CWE-89', 'CWE-77', 'CWE-78', 'CWE-94', 'CWE-611', 'CWE-917', 'CWE-98'],
     description: 'SQL, Command, Code, and other injection vulnerabilities'
   },
   {

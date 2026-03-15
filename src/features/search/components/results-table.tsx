@@ -121,10 +121,10 @@ export function ResultsTable({
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='min-w-[800px]'>
+            <Table className='w-full table-fixed'>
               <TableHeader>
                 <TableRow>
-                  <TableHead className='w-[130px]'>
+                  <TableHead className='w-[140px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
@@ -134,7 +134,7 @@ export function ResultsTable({
                       <SortIcon field='cve_id' />
                     </Button>
                   </TableHead>
-                  <TableHead className='min-w-[250px]'>{t('title')}</TableHead>
+                  <TableHead>{t('title')}</TableHead>
                   <TableHead className='w-[80px]'>
                     <Button
                       variant='ghost'
@@ -145,8 +145,8 @@ export function ResultsTable({
                       <SortIcon field='score' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[100px]'>{t('flags')}</TableHead>
-                  <TableHead className='w-[130px]'>{t('affected')}</TableHead>
+                  <TableHead className='w-[80px]'>{t('flags')}</TableHead>
+                  <TableHead className='w-[120px]'>{t('affected')}</TableHead>
                   <TableHead className='w-[150px]'>{t('repository')}</TableHead>
                   <TableHead className='w-[100px]'>
                     <Button
@@ -171,8 +171,8 @@ export function ResultsTable({
                     <TableCell className='font-mono text-sm font-medium'>
                       {cve.cve_id}
                     </TableCell>
-                    <TableCell>
-                      <div className='line-clamp-2 text-sm'>
+                    <TableCell className='overflow-hidden'>
+                      <div className='truncate text-sm' title={cve.title || cve.description?.substring(0, 200) || ''}>
                         {cve.title || cve.description?.substring(0, 100) || '—'}
                       </div>
                     </TableCell>
@@ -203,26 +203,24 @@ export function ResultsTable({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className='text-sm'>
+                    <TableCell className='overflow-hidden'>
+                      <div className='truncate text-sm'>
                         {cve.vendor_list ? (
-                          <span className='line-clamp-1'>
-                            {cve.vendor_list}
-                          </span>
+                          <span>{cve.vendor_list}</span>
                         ) : (
                           <span className='text-muted-foreground'>—</span>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className='overflow-hidden'>
                       {cve.repo_fullpath ? (
-                        <div className='flex items-center gap-2'>
+                        <div className='flex items-center gap-2 overflow-hidden'>
                           <IconBrandGithub className='text-muted-foreground h-4 w-4 shrink-0' />
-                          <span className='line-clamp-1 text-sm'>
+                          <span className='truncate text-sm'>
                             {cve.repo_fullpath.split('/').pop()}
                           </span>
                           {cve.repo_stars !== null && (
-                            <div className='text-muted-foreground flex items-center gap-0.5 text-xs'>
+                            <div className='text-muted-foreground flex shrink-0 items-center gap-0.5 text-xs'>
                               <IconStar className='h-3 w-3' />
                               {formatStars(cve.repo_stars)}
                             </div>
@@ -340,14 +338,14 @@ function TableSkeleton() {
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='min-w-[800px]'>
+            <Table className='w-full table-fixed'>
               <TableHeader>
                 <TableRow>
-                  <TableHead className='w-[130px]'>CVE ID</TableHead>
-                  <TableHead className='min-w-[250px]'>Title</TableHead>
+                  <TableHead className='w-[140px]'>CVE ID</TableHead>
+                  <TableHead>Title</TableHead>
                   <TableHead className='w-[80px]'>Score</TableHead>
-                  <TableHead className='w-[100px]'>Flags</TableHead>
-                  <TableHead className='w-[130px]'>Affected</TableHead>
+                  <TableHead className='w-[80px]'>Flags</TableHead>
+                  <TableHead className='w-[120px]'>Affected</TableHead>
                   <TableHead className='w-[150px]'>Repository</TableHead>
                   <TableHead className='w-[100px]'>Published</TableHead>
                 </TableRow>

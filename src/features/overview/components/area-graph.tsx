@@ -68,6 +68,7 @@ const CWE_NAMES: Record<string, string> = {
   'CWE-20': 'Input Val',
   'CWE-78': 'OS Cmd',
   'CWE-94': 'Code Inj',
+  'CWE-98': 'LFI',
   'CWE-119': 'Buffer OF',
   'CWE-125': 'OOB Read',
   'CWE-787': 'OOB Write',

@@ -25,6 +25,12 @@ const SEARCH_DEBOUNCE_MS = 1000;
 
 function RepositorySearchPageContentInner() {
   const t = useTranslations('repositories');
+
+  // Set page title
+  useEffect(() => {
+    document.title = 'Repository Search | SunCVE';
+  }, []);
+
   const {
     isReady,
     isLoading,
