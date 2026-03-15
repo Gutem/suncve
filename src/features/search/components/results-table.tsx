@@ -151,8 +151,8 @@ export function ResultsTable({
                       <SortIcon field='cve_id' />
                     </Button>
                   </TableHead>
-                  <TableHead>{t('title')}</TableHead>
-                  <TableHead className='w-[80px]'>
+                  <TableHead className='w-[80px]'>{t('title')}</TableHead>
+                  <TableHead className='w-[100px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
