@@ -59,10 +59,27 @@ export function ResultsTable({
   const t = useTranslations('search.table');
 
   const handleSort = (field: SortField) => {
-    if (sort.field === field) {
-      onSortChange({ field, order: sort.order === 'asc' ? 'desc' : 'asc' });
+    // Special handling for score: 3 states (desc -> asc -> reset)
+    if (field === 'score') {
+      if (sort.field === 'score') {
+        if (sort.order === 'desc') {
+          // Current: desc, next: asc
+          onSortChange({ field: 'score', order: 'asc' });
+        } else {
+          // Current: asc, next: reset to default
+          onSortChange({ field: 'date_published', order: 'desc' });
+        }
+      } else {
+        // Not sorting by score, start with desc
+        onSortChange({ field: 'score', order: 'desc' });
+      }
     } else {
-      onSortChange({ field, order: 'desc' });
+      // Other fields: 2 states (toggle between asc/desc)
+      if (sort.field === field) {
+        onSortChange({ field, order: sort.order === 'asc' ? 'desc' : 'asc' });
+      } else {
+        onSortChange({ field, order: 'desc' });
+      }
     }
   };
 
@@ -121,7 +138,7 @@ export function ResultsTable({
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='w-full table-fixed'>
+            <Table className='w-full'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='w-[140px]'>
@@ -134,8 +151,8 @@ export function ResultsTable({
                       <SortIcon field='cve_id' />
                     </Button>
                   </TableHead>
-                  <TableHead>{t('title')}</TableHead>
-                  <TableHead className='w-[80px]'>
+                  <TableHead className='min-w-[200px]'>{t('title')}</TableHead>
+                  <TableHead className='w-[100px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
@@ -145,10 +162,10 @@ export function ResultsTable({
                       <SortIcon field='score' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[80px]'>{t('flags')}</TableHead>
+                  <TableHead className='w-[90px]'>{t('flags')}</TableHead>
                   <TableHead className='w-[120px]'>{t('affected')}</TableHead>
                   <TableHead className='w-[150px]'>{t('repository')}</TableHead>
-                  <TableHead className='w-[100px]'>
+                  <TableHead className='w-[110px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
@@ -338,16 +355,16 @@ function TableSkeleton() {
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='w-full table-fixed'>
+            <Table className='w-full'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='w-[140px]'>CVE ID</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead className='w-[80px]'>Score</TableHead>
-                  <TableHead className='w-[80px]'>Flags</TableHead>
+                  <TableHead className='min-w-[200px]'>Title</TableHead>
+                  <TableHead className='w-[100px]'>Score</TableHead>
+                  <TableHead className='w-[90px]'>Flags</TableHead>
                   <TableHead className='w-[120px]'>Affected</TableHead>
                   <TableHead className='w-[150px]'>Repository</TableHead>
-                  <TableHead className='w-[100px]'>Published</TableHead>
+                  <TableHead className='w-[110px]'>Published</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
