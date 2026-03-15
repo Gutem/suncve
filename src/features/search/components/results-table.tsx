@@ -151,7 +151,7 @@ export function ResultsTable({
                       <SortIcon field='cve_id' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[80px]'>{t('title')}</TableHead>
+                  <TableHead className='min-w-[80px]'>{t('title')}</TableHead>
                   <TableHead className='w-[100px]'>
                     <Button
                       variant='ghost'
@@ -165,7 +165,7 @@ export function ResultsTable({
                   <TableHead className='w-[80px]'>{t('flags')}</TableHead>
                   <TableHead className='w-[120px]'>{t('affected')}</TableHead>
                   <TableHead className='w-[150px]'>{t('repository')}</TableHead>
-                  <TableHead className='w-[100px]'>
+                  <TableHead className='w-[120px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
