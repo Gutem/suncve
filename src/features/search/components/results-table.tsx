@@ -138,7 +138,7 @@ export function ResultsTable({
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='w-full'>
+            <Table className='w-full table-fixed'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='w-[140px]'>
@@ -151,8 +151,8 @@ export function ResultsTable({
                       <SortIcon field='cve_id' />
                     </Button>
                   </TableHead>
-                  <TableHead className='min-w-[200px]'>{t('title')}</TableHead>
-                  <TableHead className='w-[100px]'>
+                  <TableHead>{t('title')}</TableHead>
+                  <TableHead className='w-[80px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
@@ -162,10 +162,10 @@ export function ResultsTable({
                       <SortIcon field='score' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[90px]'>{t('flags')}</TableHead>
+                  <TableHead className='w-[80px]'>{t('flags')}</TableHead>
                   <TableHead className='w-[120px]'>{t('affected')}</TableHead>
                   <TableHead className='w-[150px]'>{t('repository')}</TableHead>
-                  <TableHead className='w-[110px]'>
+                  <TableHead className='w-[100px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
@@ -355,16 +355,16 @@ function TableSkeleton() {
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='w-full'>
+            <Table className='w-full table-fixed'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='w-[140px]'>CVE ID</TableHead>
-                  <TableHead className='min-w-[200px]'>Title</TableHead>
-                  <TableHead className='w-[100px]'>Score</TableHead>
-                  <TableHead className='w-[90px]'>Flags</TableHead>
+                  <TableHead className='w-[80px]'>Title</TableHead>
+                  <TableHead className='w-[80px]'>Score</TableHead>
+                  <TableHead className='w-[80px]'>Flags</TableHead>
                   <TableHead className='w-[120px]'>Affected</TableHead>
                   <TableHead className='w-[150px]'>Repository</TableHead>
-                  <TableHead className='w-[110px]'>Published</TableHead>
+                  <TableHead className='w-[100px]'>Published</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
