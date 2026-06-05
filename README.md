@@ -24,9 +24,14 @@ Dashboard para pesquisa e análise de CVEs (Common Vulnerabilities and Exposures
 
 ## Getting Started
 
+**Pré-requisitos**: Node.js >=20.9.0 (preferir 22, ver `.nvmrc`), [gh CLI](https://cli.github.com) autenticado.
+
 ```bash
 # Instalar dependências
 npm install
+
+# Provisionar banco de dados de CVEs (~141 MB)
+bash scripts/setup-db.sh
 
 # Rodar em desenvolvimento
 npm run dev
@@ -37,6 +42,8 @@ npm run build
 # Build para GitHub Pages
 npm run build:gh-pages
 ```
+
+Sem o banco de dados, a UI renderiza mas não exibe dados de CVEs ou repositórios.
 
 Acesse http://localhost:3000 para ver a aplicação.
 
