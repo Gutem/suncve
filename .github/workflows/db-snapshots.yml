@@ -93,6 +93,18 @@ jobs:
         run: |
           python scripts/create-manifest.py cves --year-auto
 
+      - name: Enrich from GitHub Advisory Database
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/create-manifest.py advisories
+
+      - name: Enrich POCs from PoC-in-GitHub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/create-manifest.py pocs
+
       - name: Incremental Repository Verification
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

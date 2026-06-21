@@ -53,3 +53,5 @@ public/db/
 # local snapshot pipeline artifacts
 data/
 snapshot-*.tar.gz
+
+*/__pycache__/*

@@ -8,6 +8,7 @@ import json
 import re
 import time
 import socket
+import shutil
 import hashlib
 import ipaddress
 from functools import lru_cache
@@ -117,6 +118,62 @@ def http_post(url: str, **kwargs):
     validate_external_url(url)
     timeout = kwargs.pop("timeout", 30)
     return HTTP_SESSION.post(url, timeout=timeout, **kwargs)
+
+def _github_api_headers(token: str | None = None) -> dict:
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "suncve-bot"}
+    token = token or os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+def github_branch_head_sha(repo: str, branch: str, token: str | None = None) -> str | None:
+    """Retorna o SHA do commit HEAD de um branch via REST API."""
+    url = f"https://api.github.com/repos/{repo}/commits/{branch}"
+    try:
+        resp = http_get(url, headers=_github_api_headers(token))
+        resp.raise_for_status()
+        return resp.json().get("sha")
+    except REQUEST_EXCEPTION as e:
+        print(f"[WARN] Failed to resolve HEAD sha for {repo}@{branch}: {e}")
+        return None
+
+def github_compare_files(repo: str, base_sha: str, head: str, token: str | None = None) -> list[str] | None:
+    """
+    Lista os arquivos alterados (added/modified/renamed) entre base_sha e head.
+
+    Retorna None quando não é possível comparar de forma confiável
+    (sha desconhecido, resposta truncada em 300 arquivos) — sinaliza ao
+    chamador para cair no scan completo.
+    """
+    url = f"https://api.github.com/repos/{repo}/compare/{base_sha}...{head}"
+    try:
+        resp = http_get(url, headers=_github_api_headers(token))
+    except REQUEST_EXCEPTION as e:
+        print(f"[WARN] compare failed for {repo}: {e}")
+        return None
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    files = resp.json().get("files", [])
+    if len(files) >= 300:
+        # A API trunca a lista de arquivos em 300; força scan completo.
+        return None
+    return [
+        f.get("filename")
+        for f in files
+        if f.get("status") in ("added", "modified", "renamed")
+    ]
+
+def download_to(url: str, dest_path: Path, headers: dict | None = None) -> Path:
+    """Baixa uma URL para dest_path em streaming (sem progress)."""
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    with http_get(url, stream=True, timeout=(30, 300), headers=headers or {}) as resp:
+        resp.raise_for_status()
+        with open(dest_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+    return dest_path
 
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -1139,6 +1196,180 @@ class databaseSQLite:
             
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert {cve_id}: {e}")
+
+    # --- Helpers de enriquecimento (fontes complementares: GHSA, PoC-in-GitHub) ---
+
+    @staticmethod
+    def _fullpathFromUrl(url: str) -> str | None:
+        """Extrai 'owner/repo' de qualquer URL do GitHub (inclusive raiz do repo)."""
+        if not url or "github.com" not in url.lower():
+            return None
+        match = re.search(r'github\.com/([^/\s]+)/([^/\s#?]+)', url, re.IGNORECASE)
+        if not match:
+            return None
+        owner = match.group(1).lower()
+        repo = match.group(2).lower()
+        if repo.endswith(".git"):
+            repo = repo[:-4]
+        if owner in ("sponsors", "orgs", "topics", "collections", "marketplace", "about", "settings"):
+            return None
+        return f"{owner}/{repo}"
+
+    def cveExists(self, cve_id: str) -> bool:
+        self.cursor.execute("SELECT 1 FROM cves WHERE cve_id = ?", (cve_id,))
+        return self.cursor.fetchone() is not None
+
+    def linkRepository(self, cve_id: str, fullpath: str | None, relation_type: str,
+                       mark_exists: int | None = None) -> None:
+        """
+        Registra um repositório e sua relação com o CVE.
+
+        mark_exists=None deixa is_exists NULL (o passo 'repos'/GraphQL irá buscar
+        metadados). mark_exists=1 marca como existente sem buscar metadados (usado
+        para PoCs). A PK de cve_repositories garante que a primeira relation_type
+        registrada prevalece (INSERT OR IGNORE).
+        """
+        if not fullpath:
+            return
+        if mark_exists is None:
+            self.cursor.execute(
+                "INSERT OR IGNORE INTO repositories (fullpath) VALUES (?)", (fullpath,)
+            )
+        else:
+            self.cursor.execute(
+                "INSERT OR IGNORE INTO repositories (fullpath, is_exists) VALUES (?, ?)",
+                (fullpath, mark_exists),
+            )
+        self.cursor.execute(
+            "INSERT OR IGNORE INTO cve_repositories (cve_id, repository_fullpath, relation_type) VALUES (?, ?, ?)",
+            (cve_id, fullpath, relation_type),
+        )
+
+    def addCwes(self, cve_id: str, cwe_ids: list[str]) -> None:
+        """Adiciona CWEs a um CVE existente (idempotente via PRIMARY KEY)."""
+        for cwe_id in cwe_ids:
+            if cwe_id:
+                self.cursor.execute(
+                    "INSERT OR IGNORE INTO cve_cwes (cve_id, cwe_id) VALUES (?, ?)",
+                    (cve_id, cwe_id),
+                )
+
+    def _loadJsonList(self, cve_id: str, column: str) -> list | None:
+        """Lê uma coluna JSON (list) de um CVE. Retorna None se o CVE não existir."""
+        self.cursor.execute(f"SELECT {column} FROM cves WHERE cve_id = ?", (cve_id,))
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row[0]) if row[0] else []
+        except (json.JSONDecodeError, TypeError):
+            value = []
+        return value if isinstance(value, list) else []
+
+    def enrichExploitUrls(self, cve_id: str, urls: list[str], relation_type: str = "poc") -> bool:
+        """
+        Mescla URLs de exploit/PoC no list_exploit de um CVE existente (dedup),
+        seta exists_exploit=1 e registra a relação com o repositório.
+
+        Não busca metadados do repo: marca is_exists=1 para que o passo 'repos'
+        (GraphQL) não reprocesse repositórios vindos apenas de PoCs.
+        """
+        current = self._loadJsonList(cve_id, "list_exploit")
+        if current is None:
+            return False
+        existing = set(current)
+        added = False
+        for url in urls:
+            if url and url not in existing:
+                current.append(url)
+                existing.add(url)
+                added = True
+        if added:
+            self.cursor.execute(
+                "UPDATE cves SET exists_exploit = 1, list_exploit = ? WHERE cve_id = ?",
+                (json.dumps(current), cve_id),
+            )
+        for url in urls:
+            self.linkRepository(cve_id, self._fullpathFromUrl(url), relation_type, mark_exists=1)
+        return added
+
+    def mergeCommitUrls(self, cve_id: str, urls: list[str]) -> bool:
+        """Mescla URLs de commit no list_commit de um CVE existente (dedup)."""
+        current = self._loadJsonList(cve_id, "list_commit")
+        if current is None:
+            return False
+        existing = set(current)
+        added = False
+        for url in urls:
+            if url and url not in existing:
+                current.append(url)
+                existing.add(url)
+                added = True
+        if added:
+            self.cursor.execute(
+                "UPDATE cves SET exists_commit = 1, list_commit = ? WHERE cve_id = ?",
+                (json.dumps(current), cve_id),
+            )
+        return added
+
+    def mergeReferences(self, cve_id: str, new_refs: list[dict]) -> None:
+        """
+        Mescla novas referências em list_references (dedup por URL) e, para as
+        referências realmente novas, reaproveita complementCVE para extrair
+        exploits/commits/repositórios.
+        """
+        refs = self._loadJsonList(cve_id, "list_references")
+        if refs is None:
+            return
+        existing_urls = {r.get("url") for r in refs if isinstance(r, dict)}
+        to_process = []
+        for ref in new_refs:
+            url = ref.get("url")
+            if not url or url in existing_urls:
+                continue
+            refs.append({"url": url, "tags": ref.get("tags", [])})
+            existing_urls.add(url)
+            to_process.append(ref)
+        if not to_process:
+            return
+        self.cursor.execute(
+            "UPDATE cves SET list_references = ? WHERE cve_id = ?",
+            (json.dumps(refs), cve_id),
+        )
+        complement = self.complementCVE(to_process, persist_repositories=True)
+        if complement["list_exploit"]:
+            self.enrichExploitUrls(cve_id, complement["list_exploit"], relation_type="referenced")
+        if complement["list_commit"]:
+            self.mergeCommitUrls(cve_id, complement["list_commit"])
+        # Vincula os repositórios descobertos nas referências (commit => fix_commit)
+        commit_repos = {self._fullpathFromUrl(u) for u in complement["list_commit"]}
+        for fullpath in complement.get("repository_fullpaths", []):
+            relation = "fix_commit" if fullpath in commit_repos else "referenced"
+            self.linkRepository(cve_id, fullpath, relation)
+
+    def addScores(self, cve_id: str, cvss_list: list[dict]) -> None:
+        """Adiciona scores CVSS a um CVE existente, evitando duplicar version+score."""
+        for cvss in cvss_list:
+            version = cvss.get("version")
+            score = cvss.get("score")
+            self.cursor.execute(
+                "SELECT 1 FROM cve_scores WHERE cve_id = ? AND version = ? AND score = ?",
+                (cve_id, version, score),
+            )
+            if self.cursor.fetchone():
+                continue
+            self.cursor.execute(
+                "INSERT INTO cve_scores (cve_id, version, score) VALUES (?, ?, ?)",
+                (cve_id, version, score),
+            )
+
+    def addAffected(self, cve_id: str, affected_list: list[dict]) -> None:
+        """Adiciona produtos afetados a um CVE existente (idempotente via UNIQUE)."""
+        for aff in affected_list:
+            self.cursor.execute(
+                "INSERT OR IGNORE INTO cve_affected (cve_id, vendor, product) VALUES (?, ?, ?)",
+                (cve_id, aff.get("vendor"), aff.get("product")),
+            )
 
 class CVElistV5:
     # Paths centralizados - todos relativos ao root do projeto
@@ -2467,6 +2698,253 @@ class findExploits:
         """
         return self.verifyHandler(url)
 
+class GitHubArchiveSource:
+    """
+    Base para fontes complementares que clonam um repositório GitHub (zip do
+    branch) e enriquecem CVEs já existentes no banco — nunca criam CVEs novas.
+
+    Estado é rastreado na tabela `sources` guardando o commit SHA processado em
+    `last_release_file`. Na primeira execução faz scan completo (download do zip);
+    nas seguintes usa a Compare API para processar só os arquivos alterados,
+    buscando cada um via raw.githubusercontent (sem rebaixar o repo inteiro).
+
+    Subclasses definem: REPO, BRANCH, SOURCE_NAME, _isRelevantPath, _iterFiles,
+    _processFile.
+    """
+    PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+    DATA_DIR = PROJECT_ROOT / "data"
+
+    REPO = ""
+    BRANCH = "main"
+    SOURCE_NAME = ""
+
+    def _isRelevantPath(self, path: str) -> bool:
+        raise NotImplementedError
+
+    def _iterFiles(self, root: Path):
+        """Itera (rel_path, data_dict) de todos os arquivos relevantes do scan completo."""
+        raise NotImplementedError
+
+    def _processFile(self, db: "databaseSQLite", data, rel_path: str) -> int:
+        """Processa um arquivo. Retorna quantos CVEs foram enriquecidos."""
+        raise NotImplementedError
+
+    def _downloadArchive(self) -> Path:
+        url = f"https://codeload.github.com/{self.REPO}/zip/refs/heads/{self.BRANCH}"
+        zip_path = self.DATA_DIR / f"{self.SOURCE_NAME}.zip"
+        extract_dir = self.DATA_DIR / f"{self.SOURCE_NAME}_extracted"
+        print(f"[INFO] Downloading archive {self.REPO}@{self.BRANCH} ...")
+        download_to(url, zip_path, headers=_github_api_headers())
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(extract_dir)
+        zip_path.unlink(missing_ok=True)
+        roots = [p for p in extract_dir.iterdir() if p.is_dir()]
+        return roots[0] if roots else extract_dir
+
+    def _fetchRawFile(self, rel_path: str, sha: str):
+        url = f"https://raw.githubusercontent.com/{self.REPO}/{sha}/{rel_path}"
+        try:
+            resp = http_get(url, headers=_github_api_headers())
+            if resp.status_code != 200:
+                return None
+            return resp.json()
+        except (REQUEST_EXCEPTION, ValueError) as e:
+            print(f"[WARN] Failed to fetch {rel_path}: {e}")
+            return None
+
+    def run(self, db: "databaseSQLite") -> None:
+        info = db.getSourceInfo(self.SOURCE_NAME)
+        prior_sha = info.get("last_release_file") if info else None
+        head_sha = github_branch_head_sha(self.REPO, self.BRANCH)
+        if not head_sha:
+            print(f"[WARN] {self.SOURCE_NAME}: could not resolve HEAD sha; skipping")
+            return
+        if prior_sha == head_sha:
+            print(f"[INFO] {self.SOURCE_NAME}: already up to date ({head_sha[:8]})")
+            return
+
+        started = datetime.now(timezone.utc).isoformat()
+        processed = 0
+
+        # Caminho incremental
+        if prior_sha:
+            changed = github_compare_files(self.REPO, prior_sha, head_sha)
+            if changed is not None:
+                relevant = [p for p in changed if p and self._isRelevantPath(p)]
+                print(f"[INFO] {self.SOURCE_NAME}: incremental — {len(relevant)} relevant changed files")
+                for i, rel_path in enumerate(relevant, 1):
+                    data = self._fetchRawFile(rel_path, head_sha)
+                    if data is None:
+                        continue
+                    processed += self._processFile(db, data, rel_path)
+                    if i % 500 == 0:
+                        db.conn.commit()
+                db.conn.commit()
+                db.updateSource(self.SOURCE_NAME, started, started, head_sha)
+                print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (incremental)")
+                return
+            print(f"[WARN] {self.SOURCE_NAME}: compare unavailable, falling back to full scan")
+
+        # Scan completo (primeira execução ou fallback)
+        root = self._downloadArchive()
+        count = 0
+        for rel_path, data in self._iterFiles(root):
+            processed += self._processFile(db, data, rel_path)
+            count += 1
+            if count % 2000 == 0:
+                db.conn.commit()
+                print(f"[INFO] {self.SOURCE_NAME}: scanned {count} files, enriched {processed} CVEs")
+        db.conn.commit()
+        db.updateSource(self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha)
+        print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (full scan of {count} files)")
+
+
+class PoCInGitHub(GitHubArchiveSource):
+    """
+    Fonte PoC-in-GitHub (nomi-sec/PoC-in-GitHub): mapeia CVE -> repositórios com
+    PoC. Alimenta apenas os campos de exploit (exists_exploit/list_exploit) com os
+    links das PoCs; metadados de cada repo (estrelas etc.) são ignorados.
+
+    Layout: YEAR/CVE-XXXX-YYYY.json, cada arquivo é um array de objetos com html_url.
+    """
+    REPO = "nomi-sec/PoC-in-GitHub"
+    BRANCH = "master"
+    SOURCE_NAME = "poc-in-github"
+
+    _PATH_RE = re.compile(r'^\d{4}/CVE-[^/]+\.json$', re.IGNORECASE)
+
+    def _isRelevantPath(self, path: str) -> bool:
+        return bool(self._PATH_RE.match(path))
+
+    def _iterFiles(self, root: Path):
+        for json_path in root.glob("[0-9][0-9][0-9][0-9]/CVE-*.json"):
+            try:
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            yield str(json_path.relative_to(root)), data
+
+    def _processFile(self, db, data, rel_path) -> int:
+        cve_id = Path(rel_path).stem.upper()
+        if not cve_id.startswith("CVE-"):
+            return 0
+        if not db.cveExists(cve_id):
+            return 0
+        urls = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("html_url"):
+                    urls.append(item["html_url"])
+        if not urls:
+            return 0
+        db.enrichExploitUrls(cve_id, urls, relation_type="poc")
+        return 1
+
+
+class GitHubAdvisory(GitHubArchiveSource):
+    """
+    Fonte GitHub Advisory Database (github/advisory-database, formato OSV).
+    Enriquece CVEs existentes (casados via aliases) com referências, scores CVSS
+    e pacotes afetados. Advisories sem CVE são ignorados.
+
+    Layout: advisories/github-reviewed/YEAR/MONTH/GHSA-xxxx/GHSA-xxxx.json
+    """
+    REPO = "github/advisory-database"
+    BRANCH = "main"
+    SOURCE_NAME = "github-advisory"
+
+    def _isRelevantPath(self, path: str) -> bool:
+        return path.startswith("advisories/github-reviewed/") and path.endswith(".json")
+
+    def _iterFiles(self, root: Path):
+        for json_path in root.glob("advisories/github-reviewed/**/GHSA-*.json"):
+            try:
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            yield str(json_path.relative_to(root)), data
+
+    @staticmethod
+    def _refTags(ref: dict) -> list[str]:
+        # Mesmo padrão do CVElist: a tag "exploit" sinaliza exploit explícito;
+        # as demais referências seguem SEM tag para que complementCVE faça a
+        # detecção centralizada (commit do GitHub / verificação ao vivo de PoC),
+        # respeitando a denylist já existente em findExploits.
+        if (ref.get("type") or "").upper() == "EXPLOIT":
+            return ["exploit"]
+        return []
+
+    @staticmethod
+    def _cvssVersion(vector: str) -> str:
+        if vector.startswith("CVSS:4"):
+            return "4.0"
+        if vector.startswith("CVSS:3"):
+            return "3.1"
+        return "2.0"
+
+    def _processFile(self, db, data, rel_path) -> int:
+        if not isinstance(data, dict):
+            return 0
+        aliases = data.get("aliases") or []
+        cve_ids = [a for a in aliases if isinstance(a, str) and a.upper().startswith("CVE-")]
+        if not cve_ids:
+            return 0
+
+        refs = [
+            {"url": r.get("url"), "tags": self._refTags(r)}
+            for r in data.get("references", [])
+            if isinstance(r, dict) and r.get("url")
+        ]
+
+        # Refs do tipo PACKAGE apontam para o repositório (URL raiz, que o
+        # GitHubExtractor ignora); capturamos via _fullpathFromUrl.
+        package_repos = [
+            db._fullpathFromUrl(r.get("url"))
+            for r in data.get("references", [])
+            if isinstance(r, dict) and (r.get("type") or "").upper() == "PACKAGE"
+        ]
+        package_repos = [fp for fp in package_repos if fp]
+
+        cvss_list = []
+        for sev in data.get("severity", []):
+            vector = sev.get("score") if isinstance(sev, dict) else None
+            if isinstance(vector, str) and vector.startswith("CVSS"):
+                version = self._cvssVersion(vector)
+                cvss_list.append({"version": version, "score": calculateScoreCVSS(vector, version)})
+
+        affected = []
+        for aff in data.get("affected", []):
+            pkg = aff.get("package", {}) if isinstance(aff, dict) else {}
+            name = pkg.get("name")
+            if name:
+                affected.append({"vendor": pkg.get("ecosystem"), "product": name})
+
+        db_specific = data.get("database_specific") or {}
+        cwe_ids = [c for c in (db_specific.get("cwe_ids") or []) if isinstance(c, str)]
+
+        count = 0
+        for cve_id in cve_ids:
+            cve_id = cve_id.upper()
+            if not db.cveExists(cve_id):
+                continue
+            # mergeReferences primeiro: vincula repos de commit como fix_commit,
+            # prevalecendo sobre o link "package" (INSERT OR IGNORE na PK).
+            if refs:
+                db.mergeReferences(cve_id, refs)
+            for fullpath in package_repos:
+                db.linkRepository(cve_id, fullpath, "package")
+            if cwe_ids:
+                db.addCwes(cve_id, cwe_ids)
+            if cvss_list:
+                db.addScores(cve_id, cvss_list)
+            if affected:
+                db.addAffected(cve_id, affected)
+            count += 1
+        return count
+
+
 def main() -> None:
     import argparse
     import os
@@ -2476,15 +2954,17 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "update-fixes", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "update-fixes", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
             "Command: 'cves' (download CVEs), 'repos' (verify repos), "
             "'cves-ids' (import specific CVE IDs), "
+            "'advisories' (enrich CVEs from GitHub Advisory Database), "
+            "'pocs' (enrich exploit fields from PoC-in-GitHub), "
             "'update-fixes' (recalculate commits_fix), "
             "'manifest' (generate public/db/manifest.json), "
-            "'all' (cves+repos+manifest)"
+            "'all' (cves+repos+advisories+pocs+manifest)"
         ),
     )
     parser.add_argument(
@@ -2629,9 +3109,23 @@ def main() -> None:
         
         verifier = GitHubRepositoryVerifier(args.github_token)
         verifier.run(db, batch_size=args.batch_size)
-        
+
         db.conn.close()
-    
+
+    if args.command in ["advisories", "all"]:
+        print("[INFO] Enriching CVEs from GitHub Advisory Database (github/advisory-database)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        GitHubAdvisory().run(db)
+        db.conn.close()
+
+    if args.command in ["pocs", "all"]:
+        print("[INFO] Enriching exploit fields from PoC-in-GitHub (nomi-sec/PoC-in-GitHub)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        PoCInGitHub().run(db)
+        db.conn.close()
+
     if args.command == "update-fixes":
         print("[INFO] Updating commits_fix for all repositories...")
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
