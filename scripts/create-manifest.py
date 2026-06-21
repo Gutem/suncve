@@ -1211,7 +1211,8 @@ class databaseSQLite:
         repo = match.group(2).lower()
         if repo.endswith(".git"):
             repo = repo[:-4]
-        if owner in ("sponsors", "orgs", "topics", "collections", "marketplace", "about", "settings"):
+        if owner in ("sponsors", "orgs", "topics", "collections", "marketplace",
+                     "about", "settings", "advisories", "security"):
             return None
         return f"{owner}/{repo}"
 
@@ -2924,6 +2925,16 @@ class GitHubAdvisory(GitHubArchiveSource):
         db_specific = data.get("database_specific") or {}
         cwe_ids = [c for c in (db_specific.get("cwe_ids") or []) if isinstance(c, str)]
 
+        # O texto do advisory (details) às vezes descreve um PoC. Reusa o mesmo
+        # detector de keywords do findExploits; se casar, o próprio link do
+        # advisory do GitHub vira o link de PoC.
+        details = data.get("details") or ""
+        ghsa_id = data.get("id") or ""
+        advisory_poc_url = None
+        if details and isinstance(ghsa_id, str) and ghsa_id.upper().startswith("GHSA-"):
+            if findExploits()._containsExploitKeywords(details):
+                advisory_poc_url = f"https://github.com/advisories/{ghsa_id}"
+
         count = 0
         for cve_id in cve_ids:
             cve_id = cve_id.upper()
@@ -2935,6 +2946,8 @@ class GitHubAdvisory(GitHubArchiveSource):
                 db.mergeReferences(cve_id, refs)
             for fullpath in package_repos:
                 db.linkRepository(cve_id, fullpath, "package")
+            if advisory_poc_url:
+                db.enrichExploitUrls(cve_id, [advisory_poc_url], relation_type="poc")
             if cwe_ids:
                 db.addCwes(cve_id, cwe_ids)
             if cvss_list:
