@@ -326,5 +326,80 @@
       "previous": "Anterior",
       "next": "Próximo"
     }
+  },
+  "readme": {
+    "title": "README",
+    "description": "Conheça o propósito do SunCVE, o que ele oferece e quem torna isso possível",
+    "purpose": {
+      "badge": "Por que existimos",
+      "title": "Por que o SunCVE existe",
+      "lead": "Queremos deixar registrado o motivo do SunCVE existir: analisar commits, diffs e exploits. Essa é a nossa estratégia para entender como CVEs em grandes repositórios acontecem.",
+      "challenge": "Um dos nossos desafios foi conseguir filtrar por tipo de repositório com muitas estrelas e com uma determinada tag, e foi disso que o SunCVE nasceu.",
+      "commitsTitle": "Commits",
+      "commitsText": "Lemos os commits para encontrar onde a falha foi introduzida e onde foi corrigida.",
+      "diffsTitle": "Diffs",
+      "diffsText": "Comparamos as mudanças para entender a natureza exata de cada vulnerabilidade.",
+      "exploitsTitle": "Exploits",
+      "exploitsText": "Cruzamos PoCs e exploits públicos para medir o impacto real de cada CVE.",
+      "starsTitle": "Estrelas e tags",
+      "starsText": "Filtramos por repositórios populares e por tags específicas para focar no que importa."
+    },
+    "offers": {
+      "badge": "Recursos",
+      "title": "O que o SunCVE oferece",
+      "lead": "Tudo roda no seu navegador, com um banco SQLite local carregado via sql.js. Nada sai do seu computador.",
+      "cveSearchTitle": "Busca de CVEs",
+      "cveSearchText": "Pesquise e filtre vulnerabilidades por CVE, fornecedor, produto e descrição.",
+      "repoSearchTitle": "Busca de Repositórios",
+      "repoSearchText": "Explore repositórios GitHub e plugins WordPress vinculados a vulnerabilidades.",
+      "dashboardTitle": "Dashboard",
+      "dashboardText": "Visão geral com gráficos de CVEs por período, severidade e tendências de CWE.",
+      "exploitsTitle": "Exploits e PoCs",
+      "exploitsText": "Identifique CVEs com código de exploração público disponível.",
+      "commitsTitle": "Commits de correção",
+      "commitsText": "Encontre os commits que corrigiram cada vulnerabilidade.",
+      "ecosystemsTitle": "GitHub e WordPress",
+      "ecosystemsText": "Dois ecossistemas no mesmo lugar, com métricas de popularidade próprias."
+    },
+    "filters": {
+      "badge": "Filtros",
+      "title": "Filtros disponíveis",
+      "lead": "Combine os filtros abaixo para chegar exatamente nas vulnerabilidades que você procura.",
+      "cvss": "Score CVSS (faixa de 0 a 10)",
+      "severity": "Severidade: crítica, alta, média e baixa",
+      "cwe": "CWE individual e por categoria de vulnerabilidade",
+      "flags": "Com exploit, com repositório e com commit de fix",
+      "ecosystem": "Ecossistema: GitHub ou WordPress",
+      "popularity": "Popularidade mínima: estrelas, instalações ativas e downloads",
+      "language": "Linguagem de programação",
+      "repoStars": "Faixa de estrelas do repositório",
+      "repository": "Repositório específico (owner/repo)",
+      "datePeriod": "Período de publicação, incluindo data específica"
+    },
+    "sources": {
+      "badge": "Créditos",
+      "title": "Fontes de dados",
+      "lead": "O SunCVE só é possível por causa destes projetos abertos. Agradecemos de coração a cada um deles por manterem esses dados acessíveis para a comunidade.",
+      "cvelistv5Title": "cvelistV5",
+      "cvelistv5Text": "Lista oficial de CVEs no formato CVE JSON 5.0, mantida pelo CVE Project.",
+      "advisoryTitle": "GitHub Advisory Database",
+      "advisoryText": "Banco de avisos de segurança curado pelo GitHub para diversos ecossistemas.",
+      "pocTitle": "PoC-in-GitHub",
+      "pocText": "Coleção de provas de conceito e exploits públicos associados a CVEs.",
+      "wordpressTitle": "Base de plugins WordPress",
+      "wordpressText": "Diretório de plugins do WordPress, com instalações ativas e downloads.",
+      "visit": "Visitar repositório"
+    },
+    "contributors": {
+      "badge": "Comunidade",
+      "title": "Contribuidores",
+      "lead": "Um agradecimento especial a todas as pessoas que dedicam seu tempo ao SunCVE. Vocês são o coração deste projeto.",
+      "loading": "Carregando contribuidores...",
+      "contributions": "contribuições",
+      "errorTitle": "Não foi possível carregar os contribuidores agora",
+      "errorText": "Isso pode acontecer por limite de taxa da API do GitHub. Você ainda pode ver todos eles direto no repositório.",
+      "viewOnGithub": "Ver no GitHub",
+      "thanks": "Obrigado por construir o SunCVE com a gente."
+    }
   }
 }

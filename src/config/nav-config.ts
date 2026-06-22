@@ -27,5 +27,13 @@ export const navItems: NavItem[] = [
     isActive: false,
     shortcut: ['r', 's'],
     items: []
+  },
+  {
+    title: 'README',
+    url: '/dashboard/readme',
+    icon: 'readme',
+    isActive: false,
+    shortcut: ['r', 'm'],
+    items: []
   }
 ];
