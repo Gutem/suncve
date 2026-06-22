@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import {
   IconExternalLink,
   IconBrandGithub,
@@ -63,6 +63,7 @@ import { CVEDetailDrawer } from '@/features/search/components/cve-detail-drawer'
 import { useCVESearch } from '@/lib/sqlite/use-cve-search';
 import { useRepositorySearch } from '@/lib/sqlite/use-repository-search';
 import { cn } from '@/lib/utils';
+import { formatDateLocalized } from '@/lib/format';
 
 const CVE_PAGE_SIZE = 20;
 
@@ -78,6 +79,7 @@ export function RepoDetailDrawer({
   onClose
 }: RepoDetailDrawerProps) {
   const t = useTranslations('repositories.detail');
+  const locale = useLocale();
   const [copied, setCopied] = useState(false);
   const [selectedCveId, setSelectedCveId] = useState<string | null>(null);
   const [selectedCve, setSelectedCve] = useState<Record<
@@ -190,19 +192,19 @@ export function RepoDetailDrawer({
             <SheetHeader className='space-y-4'>
               <div className='flex items-start justify-between gap-4'>
                 <div className='min-w-0 flex-1'>
-                  <SheetTitle className='flex items-center gap-2 text-xl'>
+                  <SheetTitle className='flex min-w-0 items-center gap-2 text-xl'>
                     {isWordpress ? (
                       <IconBrandWordpress className='h-6 w-6 shrink-0 text-[#21759b]' />
                     ) : (
                       <IconBrandGithub className='h-6 w-6 shrink-0' />
                     )}
-                    <span className='truncate'>
+                    <span className='min-w-0 truncate'>
                       {name || repoFullpath.split('/').pop()}
                     </span>
                     {isWordpress && (
                       <Badge
                         variant='outline'
-                        className='border-[#21759b]/50 text-[#21759b]'
+                        className='shrink-0 border-[#21759b]/50 text-[#21759b]'
                       >
                         WordPress
                       </Badge>
@@ -226,7 +228,7 @@ export function RepoDetailDrawer({
                     </Button>
                   </div>
                 </div>
-                <Button variant='outline' size='sm' asChild>
+                <Button variant='outline' size='sm' className='shrink-0' asChild>
                   <a
                     href={externalUrl}
                     target='_blank'
@@ -405,7 +407,7 @@ export function RepoDetailDrawer({
                           <div className='flex items-center gap-2'>
                             <IconCalendar className='text-muted-foreground h-4 w-4' />
                             <span>
-                              {new Date(createdRepository).toLocaleDateString()}
+                              {formatDateLocalized(createdRepository, locale)}
                             </span>
                           </div>
                         </div>
@@ -418,7 +420,7 @@ export function RepoDetailDrawer({
                           <div className='flex items-center gap-2'>
                             <IconCalendar className='text-muted-foreground h-4 w-4' />
                             <span>
-                              {new Date(updatedRepository).toLocaleDateString()}
+                              {formatDateLocalized(updatedRepository, locale)}
                             </span>
                           </div>
                         </div>
@@ -526,11 +528,10 @@ export function RepoDetailDrawer({
                                     </div>
                                   </TableCell>
                                   <TableCell className='text-muted-foreground text-sm'>
-                                    {cve.date_published
-                                      ? new Date(
-                                          cve.date_published
-                                        ).toLocaleDateString()
-                                      : '—'}
+                                    {formatDateLocalized(
+                                      cve.date_published,
+                                      locale
+                                    )}
                                   </TableCell>
                                 </TableRow>
                               );

@@ -256,7 +256,7 @@
       "withCVEs": "With CVEs",
       "withCommitFix": "With Commit Fix",
       "topLanguage": "Top Language",
-      "repositories": "GitHub repositories",
+      "repositories": "Repositories",
       "inDatabase": "In the vulnerability database",
       "linkedCVEs": "With linked CVEs",
       "vulnerableRepos": "Repositories with vulnerabilities",
@@ -321,6 +321,81 @@
       "of": "of",
       "previous": "Previous",
       "next": "Next"
+    }
+  },
+  "readme": {
+    "title": "README",
+    "description": "Learn the purpose of SunCVE, what it offers, and who makes it possible",
+    "purpose": {
+      "badge": "Why we exist",
+      "title": "Why SunCVE exists",
+      "lead": "We want to put on record why SunCVE exists: to analyze commits, diffs, and exploits. That is our strategy to understand how CVEs in large repositories happen.",
+      "challenge": "One of our challenges was being able to filter by type of repository with many stars and with a specific tag, and that is what SunCVE was born from.",
+      "commitsTitle": "Commits",
+      "commitsText": "We read commits to find where a flaw was introduced and where it was fixed.",
+      "diffsTitle": "Diffs",
+      "diffsText": "We compare the changes to understand the exact nature of each vulnerability.",
+      "exploitsTitle": "Exploits",
+      "exploitsText": "We cross-reference public PoCs and exploits to measure the real impact of each CVE.",
+      "starsTitle": "Stars and tags",
+      "starsText": "We filter by popular repositories and specific tags to focus on what matters."
+    },
+    "offers": {
+      "badge": "Features",
+      "title": "What SunCVE offers",
+      "lead": "Everything runs in your browser, with a local SQLite database loaded via sql.js. Nothing leaves your computer.",
+      "cveSearchTitle": "CVE Search",
+      "cveSearchText": "Search and filter vulnerabilities by CVE, vendor, product, and description.",
+      "repoSearchTitle": "Repository Search",
+      "repoSearchText": "Explore GitHub repositories and WordPress plugins linked to vulnerabilities.",
+      "dashboardTitle": "Dashboard",
+      "dashboardText": "Overview with charts of CVEs by period, severity, and CWE trends.",
+      "exploitsTitle": "Exploits and PoCs",
+      "exploitsText": "Spot CVEs with public exploitation code available.",
+      "commitsTitle": "Fix commits",
+      "commitsText": "Find the commits that fixed each vulnerability.",
+      "ecosystemsTitle": "GitHub and WordPress",
+      "ecosystemsText": "Two ecosystems in one place, each with its own popularity metrics."
+    },
+    "filters": {
+      "badge": "Filters",
+      "title": "Available filters",
+      "lead": "Combine the filters below to reach exactly the vulnerabilities you are looking for.",
+      "cvss": "CVSS score (range from 0 to 10)",
+      "severity": "Severity: critical, high, medium, and low",
+      "cwe": "Individual CWE and by vulnerability category",
+      "flags": "Has exploit, has repository, and has fix commit",
+      "ecosystem": "Ecosystem: GitHub or WordPress",
+      "popularity": "Minimum popularity: stars, active installs, and downloads",
+      "language": "Programming language",
+      "repoStars": "Repository stars range",
+      "repository": "Specific repository (owner/repo)",
+      "datePeriod": "Publication period, including a specific date"
+    },
+    "sources": {
+      "badge": "Credits",
+      "title": "Data sources",
+      "lead": "SunCVE is only possible because of these open projects. We are deeply grateful to each one of them for keeping this data accessible to the community.",
+      "cvelistv5Title": "cvelistV5",
+      "cvelistv5Text": "Official CVE list in the CVE JSON 5.0 format, maintained by the CVE Project.",
+      "advisoryTitle": "GitHub Advisory Database",
+      "advisoryText": "Security advisory database curated by GitHub for many ecosystems.",
+      "pocTitle": "PoC-in-GitHub",
+      "pocText": "Collection of public proofs of concept and exploits associated with CVEs.",
+      "wordpressTitle": "WordPress plugins database",
+      "wordpressText": "WordPress plugin directory, with active installs and downloads.",
+      "visit": "Visit repository"
+    },
+    "contributors": {
+      "badge": "Community",
+      "title": "Contributors",
+      "lead": "A special thank you to everyone who dedicates their time to SunCVE. You are the heart of this project.",
+      "loading": "Loading contributors...",
+      "contributions": "contributions",
+      "errorTitle": "We could not load the contributors right now",
+      "errorText": "This can happen due to GitHub API rate limits. You can still see all of them directly in the repository.",
+      "viewOnGithub": "View on GitHub",
+      "thanks": "Thank you for building SunCVE with us."
     }
   }
 }

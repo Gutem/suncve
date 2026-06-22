@@ -1,6 +1,6 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import {
   IconChevronUp,
   IconChevronDown,
@@ -38,6 +38,7 @@ import type {
   Severity
 } from '@/features/search/types';
 import { cn } from '@/lib/utils';
+import { formatDateLocalized } from '@/lib/format';
 
 interface ResultsTableProps {
   results: SearchResultsPage | null;
@@ -57,6 +58,7 @@ export function ResultsTable({
   onRowClick
 }: ResultsTableProps) {
   const t = useTranslations('search.table');
+  const locale = useLocale();
 
   const handleSort = (field: SortField) => {
     // Special handling for score: 3 states (desc -> asc -> reset)
@@ -248,9 +250,7 @@ export function ResultsTable({
                       )}
                     </TableCell>
                     <TableCell className='text-muted-foreground text-sm'>
-                      {cve.date_published
-                        ? new Date(cve.date_published).toLocaleDateString()
-                        : '—'}
+                      {formatDateLocalized(cve.date_published, locale)}
                     </TableCell>
                   </TableRow>
                 ))}

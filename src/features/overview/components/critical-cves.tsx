@@ -9,7 +9,7 @@ import {
   CardTitle,
   CardDescription
 } from '@/components/ui/card';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import {
   useDashboardStats,
   type CriticalCVEWithPOC
@@ -20,6 +20,7 @@ import { useCVESearch } from '@/lib/sqlite/use-cve-search';
 
 export function CriticalCVEs() {
   const t = useTranslations('charts');
+  const locale = useLocale();
   const { getCriticalCVEsWithPOC, isReady } = useDashboardStats();
   const { getCVEDetails } = useCVESearch();
   const [cves, setCves] = useState<CriticalCVEWithPOC[]>([]);
@@ -55,7 +56,7 @@ export function CriticalCVEs() {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
-    return date.toLocaleDateString('pt-BR', {
+    return date.toLocaleDateString(locale, {
       day: '2-digit',
       month: 'short'
     });

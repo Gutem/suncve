@@ -74,6 +74,22 @@ function RepositorySearchPageContentInner() {
     topLanguages: { language: string; count: number }[];
   }>({ totalRepos: 0, withCVEs: 0, withCommitFix: 0, topLanguages: [] });
 
+  // Keep the sort field meaningful per ecosystem: WordPress plugins have no stars
+  // (sort by downloads instead), and stars is the sensible default elsewhere.
+  useEffect(() => {
+    if (filters.ecosystem === 'wordpress') {
+      setSort((prev) =>
+        prev.field === 'stars' ? { field: 'downloaded', order: 'desc' } : prev
+      );
+    } else {
+      setSort((prev) =>
+        prev.field === 'downloaded' || prev.field === 'active_installs'
+          ? { field: 'stars', order: 'desc' }
+          : prev
+      );
+    }
+  }, [filters.ecosystem]);
+
   // Debounce filters to avoid excessive queries while typing
   const debouncedFilters = useDebounce(filters, SEARCH_DEBOUNCE_MS);
 
@@ -215,6 +231,7 @@ function RepositorySearchPageContentInner() {
           results={results}
           sort={sort}
           isLoading={isSearching || isPending}
+          ecosystem={filters.ecosystem}
           onSortChange={setSort}
           onPageChange={setPage}
           onRowClick={handleRowClick}

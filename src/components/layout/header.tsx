@@ -5,6 +5,7 @@ import { Breadcrumbs } from '../breadcrumbs';
 import SearchInput from '../search-input';
 import { ModeToggle } from './ThemeToggle/theme-toggle';
 import { TourButton } from '../tour/tour-button';
+import CtaGithub from './cta-github';
 
 export default function Header() {
   return (
@@ -20,6 +21,7 @@ export default function Header() {
           <SearchInput />
         </div>
         <TourButton />
+        <CtaGithub />
         <div data-tour='theme-toggle'>
           <ModeToggle />
         </div>
