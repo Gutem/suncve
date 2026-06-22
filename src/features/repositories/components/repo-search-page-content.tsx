@@ -17,7 +17,8 @@ import {
   type RepositorySearchResultsPage,
   type RepositorySearchFilters,
   type RepositorySortConfig,
-  defaultRepositoryFilters
+  defaultRepositoryFilters,
+  defaultFilters
 } from '@/features/search/types';
 
 // Debounce delay for search (ms) - 1 second for better UX
@@ -183,23 +184,13 @@ function RepositorySearchPageContentInner() {
         <div className='space-y-4'>
           <SearchBar
             filters={{
+              ...defaultFilters,
               query: filters.query,
-              cvssMin: 0,
-              cvssMax: 10,
-              severity: [],
-              cwes: [],
-              cweCategory: null,
-              hasExploit: null,
-              hasRepository: null,
-              hasCommitFix: null,
               languages: filters.languages,
               starsMin: filters.starsMin,
               starsMax: filters.starsMax,
               repoSizeMin: filters.sizeMin,
-              repoSizeMax: filters.sizeMax,
-              datePeriod: 'all',
-              customDate: null,
-              repository: null
+              repoSizeMax: filters.sizeMax
             }}
             onFiltersChange={(searchFilters) =>
               handleFiltersChange({
