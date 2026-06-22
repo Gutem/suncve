@@ -110,6 +110,14 @@ const searchParamsConfig = {
   // CWE Category filter
   cwe_cat: parseAsString.withDefault(''),
 
+  // Ecosystem filter (github | wordpress)
+  ecosystem: parseAsString.withDefault(''),
+
+  // Popularity thresholds (repo stars OR active installs OR downloads)
+  pop_stars: parseAsNullableInt,
+  pop_installs: parseAsNullableInt,
+  pop_downloads: parseAsNullableInt,
+
   // Sorting
   sort: parseAsStringLiteral(sortFieldOptions).withDefault('date_published'),
   order: parseAsStringLiteral(sortOrderOptions).withDefault('desc'),
@@ -143,7 +151,11 @@ export function useSearchParams() {
       datePeriod: params.period as DatePeriod,
       customDate: params.date || null,
       repository: params.repo_filter || null,
-      cweCategory: params.cwe_cat || null
+      cweCategory: params.cwe_cat || null,
+      ecosystem: params.ecosystem || null,
+      popStarsMin: params.pop_stars,
+      popInstallsMin: params.pop_installs,
+      popDownloadsMin: params.pop_downloads
     }),
     [params]
   );
@@ -181,6 +193,10 @@ export function useSearchParams() {
         date: newFilters.customDate || null,
         repo_filter: newFilters.repository || null,
         cwe_cat: newFilters.cweCategory || null,
+        ecosystem: newFilters.ecosystem || null,
+        pop_stars: newFilters.popStarsMin,
+        pop_installs: newFilters.popInstallsMin,
+        pop_downloads: newFilters.popDownloadsMin,
         // Reset page when filters change
         page: 1
       });
@@ -228,6 +244,11 @@ export function useSearchParams() {
       period: null,
       date: null,
       repo_filter: null,
+      cwe_cat: null,
+      ecosystem: null,
+      pop_stars: null,
+      pop_installs: null,
+      pop_downloads: null,
       sort: null,
       order: null,
       page: null
@@ -251,7 +272,11 @@ export function useSearchParams() {
       filters.repoSizeMin !== null ||
       filters.repoSizeMax !== null ||
       filters.datePeriod !== 'all' ||
-      filters.repository !== null
+      filters.repository !== null ||
+      filters.ecosystem !== null ||
+      filters.popStarsMin !== null ||
+      filters.popInstallsMin !== null ||
+      filters.popDownloadsMin !== null
     );
   }, [filters]);
 
