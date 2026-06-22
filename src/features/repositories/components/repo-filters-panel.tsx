@@ -13,6 +13,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import {
   Collapsible,
   CollapsibleContent,
@@ -101,6 +109,32 @@ export function RepoFiltersPanel({
   const handleBooleanFilter = useCallback(
     (key: 'hasCVEs' | 'hasCommitFix', value: boolean | null) => {
       onFiltersChange({ ...filters, [key]: value });
+    },
+    [filters, onFiltersChange]
+  );
+
+  const handleEcosystemChange = useCallback(
+    (value: string) => {
+      const ecosystem = value === 'all' ? null : value;
+      // Clear WordPress-only thresholds when leaving the WordPress ecosystem
+      onFiltersChange({
+        ...filters,
+        ecosystem,
+        activeInstallsMin:
+          ecosystem === 'wordpress' ? filters.activeInstallsMin : null,
+        downloadedMin: ecosystem === 'wordpress' ? filters.downloadedMin : null
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
+  const handleNumberFilter = useCallback(
+    (key: 'activeInstallsMin' | 'downloadedMin', raw: string) => {
+      const value = raw.trim() === '' ? null : Number(raw);
+      onFiltersChange({
+        ...filters,
+        [key]: value !== null && !Number.isNaN(value) ? value : null
+      });
     },
     [filters, onFiltersChange]
   );
@@ -267,6 +301,60 @@ export function RepoFiltersPanel({
               </div>
             </div>
           </div>
+
+          {/* Ecosystem Filter (GitHub / WordPress) */}
+          <div className='space-y-3'>
+            <Label>{t('ecosystem')}</Label>
+            <Select
+              value={filters.ecosystem ?? 'all'}
+              onValueChange={handleEcosystemChange}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>{t('ecosystemAll')}</SelectItem>
+                <SelectItem value='github'>GitHub</SelectItem>
+                <SelectItem value='wordpress'>WordPress</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {filters.ecosystem === 'wordpress' && (
+              <div className='space-y-2'>
+                <div className='space-y-1'>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('minActiveInstalls')}
+                  </span>
+                  <Input
+                    type='number'
+                    min={0}
+                    placeholder='1000'
+                    value={filters.activeInstallsMin ?? ''}
+                    onChange={(e) =>
+                      handleNumberFilter('activeInstallsMin', e.target.value)
+                    }
+                  />
+                </div>
+                <div className='space-y-1'>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('minDownloads')}
+                  </span>
+                  <Input
+                    type='number'
+                    min={0}
+                    placeholder='10000'
+                    value={filters.downloadedMin ?? ''}
+                    onChange={(e) =>
+                      handleNumberFilter('downloadedMin', e.target.value)
+                    }
+                  />
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  {t('thresholdHint')}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -316,5 +404,8 @@ function countActiveFilters(filters: RepositorySearchFilters): number {
   if (filters.sizeMin !== null || filters.sizeMax !== null) count++;
   if (filters.hasCVEs !== null) count++;
   if (filters.hasCommitFix !== null) count++;
+  if (filters.ecosystem !== null) count++;
+  if (filters.activeInstallsMin !== null || filters.downloadedMin !== null)
+    count++;
   return count;
 }

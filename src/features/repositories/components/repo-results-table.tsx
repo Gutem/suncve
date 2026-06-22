@@ -6,6 +6,7 @@ import {
   IconChevronDown,
   IconSelector,
   IconBrandGithub,
+  IconBrandWordpress,
   IconStar,
   IconBug,
   IconGitCommit,
@@ -134,7 +135,7 @@ export function RepoResultsTable({
                       <SortIcon field='fullpath' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[100px]'>
+                  <TableHead className='w-[140px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
@@ -187,10 +188,24 @@ export function RepoResultsTable({
                   >
                     <TableCell>
                       <div className='flex items-center gap-2'>
-                        <IconBrandGithub className='text-muted-foreground h-5 w-5 shrink-0' />
+                        {repo.ecosystem === 'wordpress' ? (
+                          <IconBrandWordpress className='h-5 w-5 shrink-0 text-[#21759b]' />
+                        ) : (
+                          <IconBrandGithub className='text-muted-foreground h-5 w-5 shrink-0' />
+                        )}
                         <div className='min-w-0'>
-                          <div className='truncate font-medium'>
-                            {repo.name || repo.fullpath.split('/').pop()}
+                          <div className='flex items-center gap-2'>
+                            <span className='truncate font-medium'>
+                              {repo.name || repo.fullpath.split('/').pop()}
+                            </span>
+                            {repo.ecosystem === 'wordpress' && (
+                              <Badge
+                                variant='outline'
+                                className='shrink-0 border-[#21759b]/50 text-[#21759b]'
+                              >
+                                WordPress
+                              </Badge>
+                            )}
                           </div>
                           <div className='text-muted-foreground truncate text-xs'>
                             {repo.fullpath}
@@ -199,12 +214,41 @@ export function RepoResultsTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className='flex items-center gap-1'>
-                        <IconStar className='h-4 w-4 text-yellow-500' />
-                        <span className='font-medium'>
-                          {formatStars(repo.stars ?? 0)}
-                        </span>
-                      </div>
+                      {repo.ecosystem === 'wordpress' ? (
+                        <div className='flex flex-col gap-0.5 text-sm'>
+                          <span
+                            className='flex items-center gap-1'
+                            title={t('activeInstalls')}
+                          >
+                            <span aria-hidden>👥</span>
+                            <span className='font-medium'>
+                              {repo.active_installs != null
+                                ? formatCount(repo.active_installs)
+                                : '—'}
+                            </span>
+                          </span>
+                          <span
+                            className='text-muted-foreground flex items-center gap-1'
+                            title={t('downloads')}
+                          >
+                            <span aria-hidden>⬇️</span>
+                            <span>
+                              {repo.downloaded != null
+                                ? formatCount(repo.downloaded)
+                                : '—'}
+                            </span>
+                          </span>
+                        </div>
+                      ) : repo.stars != null ? (
+                        <div className='flex items-center gap-1'>
+                          <IconStar className='h-4 w-4 text-yellow-500' />
+                          <span className='font-medium'>
+                            {formatStars(repo.stars)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className='text-muted-foreground'>—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {repo.languageMain ? (
@@ -386,6 +430,16 @@ function formatStars(stars: number): string {
     return `${(stars / 1000).toFixed(1)}k`;
   }
   return stars.toString();
+}
+
+function formatCount(value: number): string {
+  if (value >= 1000000) {
+    return `${(value / 1000000).toFixed(1)}M`;
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  return value.toLocaleString();
 }
 
 function formatSize(sizeKB: number): string {

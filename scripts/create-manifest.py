@@ -337,6 +337,79 @@ class GitHubExtractor:
         return list(fullpaths)
 
 
+class WordPressExtractor:
+    """
+    Extrai o slug de um plugin WordPress a partir de URLs de referências de uma CVE.
+
+    Uma CVE é considerada do ecossistema WordPress quando conseguimos extrair um slug
+    de plugin de alguma referência. O slug é o identificador do plugin no diretório
+    oficial (ex.: 'contact-form-7') e também a chave usada na base de metadados.
+
+    Padrões suportados:
+    - https://plugins.trac.wordpress.org/browser/<slug>/trunk/...        -> após /browser/
+    - https://plugins.trac.wordpress.org/changeset/<num>/<slug>          -> após /changeset/<num>/
+    - https://wordpress.org/plugins/<slug>/                              -> após /plugins/
+    - https://plugins.trac.wordpress.org/changeset?...old=<num>%40<slug>&new=<num>%40<slug>
+                                                                        -> após %40
+    """
+
+    # fullpath sintético usado na tabela repositories
+    FULLPATH_PREFIX = "wordpress.org/plugins/"
+
+    @staticmethod
+    def fullpathFromSlug(slug: str) -> str:
+        return f"{WordPressExtractor.FULLPATH_PREFIX}{slug}"
+
+    @staticmethod
+    def _cleanSlug(slug: str | None) -> str | None:
+        if not slug:
+            return None
+        slug = slug.strip().strip("/").lower()
+        # Slugs do diretório WP são [a-z0-9-]; descarta qualquer coisa fora disso
+        if not slug or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", slug):
+            return None
+        return slug
+
+    @staticmethod
+    def extractSlug(url: str) -> str | None:
+        """Extrai o slug do plugin de uma única URL, ou None se não for WordPress."""
+        if not url or "wordpress.org" not in url.lower():
+            return None
+
+        # 1) /browser/<slug>/...
+        match = re.search(r"plugins\.trac\.wordpress\.org/browser/([^/?#]+)", url, re.IGNORECASE)
+        if match:
+            return WordPressExtractor._cleanSlug(match.group(1))
+
+        # 2) /changeset/<num>/<slug>
+        match = re.search(r"plugins\.trac\.wordpress\.org/changeset/\d+/([^/?#]+)", url, re.IGNORECASE)
+        if match:
+            return WordPressExtractor._cleanSlug(match.group(1))
+
+        # 3) /changeset?...old=<num>%40<slug>&new=<num>%40<slug>  (%40 == '@')
+        if "trac.wordpress.org/changeset?" in url.lower():
+            match = re.search(r"%40([A-Za-z0-9][A-Za-z0-9._-]*)", url, re.IGNORECASE)
+            if match:
+                return WordPressExtractor._cleanSlug(match.group(1))
+
+        # 4) wordpress.org/plugins/<slug>/
+        match = re.search(r"wordpress\.org/plugins/([^/?#]+)", url, re.IGNORECASE)
+        if match:
+            return WordPressExtractor._cleanSlug(match.group(1))
+
+        return None
+
+    @staticmethod
+    def extractFromReferences(references: list) -> list[str]:
+        """Retorna a lista de slugs únicos encontrados nas referências."""
+        slugs = set()
+        for ref in references:
+            slug = WordPressExtractor.extractSlug(ref.get("url", ""))
+            if slug:
+                slugs.add(slug)
+        return list(slugs)
+
+
 class GitHubRepositoryVerifier:
     """
     Verifica repositórios do GitHub via GraphQL API e extrai metadados.
@@ -635,7 +708,10 @@ class databaseSQLite:
             researchs_count INTEGER,
             scm_id_repository TEXT,
             created_repository TEXT,
-            updated_repository TEXT
+            updated_repository TEXT,
+            ecosystem TEXT DEFAULT 'github',
+            active_installs INTEGER,
+            downloaded INTEGER
         )
         """)
         
@@ -644,6 +720,17 @@ class databaseSQLite:
             self.cursor.execute("ALTER TABLE repositories ADD COLUMN is_exists BOOLEAN DEFAULT NULL")
         except sqlite3.OperationalError:
             pass  # Coluna já existe
+
+        # Migração: colunas do ecossistema WordPress (plugins) para bancos antigos
+        for column_ddl in (
+            "ALTER TABLE repositories ADD COLUMN ecosystem TEXT DEFAULT 'github'",
+            "ALTER TABLE repositories ADD COLUMN active_installs INTEGER",
+            "ALTER TABLE repositories ADD COLUMN downloaded INTEGER",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
 
         # 1. Tabela Principal de CVEs
         self.cursor.execute("""
@@ -724,6 +811,7 @@ class databaseSQLite:
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_vendor_lookup ON cve_affected(vendor)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_cve ON cve_repositories(cve_id)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_fullpath ON cve_repositories(repository_fullpath)")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_ecosystem ON repositories(ecosystem)")
         
         """
         EXEMPLOS DE QUERY CONSULTA:
@@ -856,6 +944,22 @@ class databaseSQLite:
             """, (fullpath,))
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert repository {fullpath}: {e}")
+
+    def insertWordpressRepository(self, slug: str) -> None:
+        """
+        Insere um plugin WordPress como repositório sintético.
+
+        Marca is_exists=1 e ecosystem='wordpress' para que não seja verificado via
+        GraphQL do GitHub. Métricas (active_installs/downloaded) são preenchidas pelo
+        comando 'wordpress'. Não sobrescreve dados existentes.
+        """
+        try:
+            self.cursor.execute("""
+            INSERT OR IGNORE INTO repositories (fullpath, is_exists, ecosystem, name)
+            VALUES (?, 1, 'wordpress', ?)
+            """, (WordPressExtractor.fullpathFromSlug(slug), slug))
+        except sqlite3.Error as e:
+            print(f"[WARN] Failed to insert wordpress plugin {slug}: {e}")
 
     def getPendingRepositories(self, limit: int = 100) -> list[str]:
         """
@@ -1050,12 +1154,13 @@ class databaseSQLite:
         complementData = {
             "repository_fullpath": None,
             "repository_fullpaths": [],
+            "wordpress_fullpaths": [],
             "exists_commit": False,
             "exists_exploit": False,
             "list_commit": [],
             "list_exploit": []
         }
-        
+
         # Extrai fullpaths de repositórios das referências
         fullpaths = GitHubExtractor.extractFromReferences(dataReferences)
         complementData["repository_fullpaths"] = fullpaths
@@ -1066,13 +1171,27 @@ class databaseSQLite:
                 # Insere todos os repositórios encontrados na tabela
                 for fullpath in fullpaths:
                     self.insertRepository(fullpath)
-        
+
+        # Ecossistema WordPress: a CVE é classificada quando extraímos um slug de plugin.
+        # Plugins viram "repositórios" sintéticos (wordpress.org/plugins/<slug>) já marcados
+        # como existentes (is_exists=1), pois não passam pela verificação GraphQL do GitHub.
+        wp_slugs = WordPressExtractor.extractFromReferences(dataReferences)
+        wp_fullpaths = [WordPressExtractor.fullpathFromSlug(slug) for slug in wp_slugs]
+        complementData["wordpress_fullpaths"] = wp_fullpaths
+        if wp_fullpaths and persist_repositories:
+            for slug in wp_slugs:
+                self.insertWordpressRepository(slug)
+
         for reference in dataReferences:
             url = reference.get("url", "")
             tags = reference.get("tags", [])
-            
+
             # Pegando Commits do GitHub
             if "github.com" in url and "/commit/" in url:
+                complementData["exists_commit"] = True
+                complementData["list_commit"].append(url)
+            # Changesets do Trac de plugins WordPress são "commits" de fix (cobre /changeset/ e /changeset?)
+            elif "trac.wordpress.org/changeset" in url.lower():
                 complementData["exists_commit"] = True
                 complementData["list_commit"].append(url)
             elif "exploit" in tags:
@@ -1123,6 +1242,9 @@ class databaseSQLite:
             else:
                 for fullpath in complement.get("repository_fullpaths", []):
                     self.insertRepository(fullpath)
+                for fullpath in complement.get("wordpress_fullpaths", []):
+                    slug = fullpath.split("/")[-1]
+                    self.insertWordpressRepository(slug)
             
             # Converte para JSON
             references_json = json.dumps(references)
@@ -1188,12 +1310,25 @@ class databaseSQLite:
                 relation_type = "referenced"
                 if complement["exists_commit"]:
                     relation_type = "fix_commit"
-                
+
                 self.cursor.execute("""
                 INSERT OR IGNORE INTO cve_repositories (cve_id, repository_fullpath, relation_type)
                 VALUES (?, ?, ?)
                 """, (cve_id, complement["repository_fullpath"], relation_type))
-            
+
+            # Insert relação CVE <-> Plugin WordPress (pode haver vários por CVE).
+            # Usa 'fix_commit' quando há um changeset Trac do plugin em list_commit, senão 'referenced'.
+            list_commit_blob = " ".join(complement.get("list_commit", []))
+            for wp_fullpath in complement.get("wordpress_fullpaths", []):
+                slug = wp_fullpath.split("/")[-1]
+                wp_relation = "fix_commit" if (
+                    "trac.wordpress.org/changeset" in list_commit_blob.lower() and slug in list_commit_blob.lower()
+                ) else "referenced"
+                self.cursor.execute("""
+                INSERT OR IGNORE INTO cve_repositories (cve_id, repository_fullpath, relation_type)
+                VALUES (?, ?, ?)
+                """, (cve_id, wp_fullpath, wp_relation))
+
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert {cve_id}: {e}")
 
@@ -2927,6 +3062,66 @@ class GitHubArchiveSource:
         print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (full scan of {count} files)")
 
 
+class WordPressMetadata:
+    """
+    Enriquece os plugins WordPress (repositories com ecosystem='wordpress') com
+    métricas do diretório oficial, vindas de rix4uni/wordpress-plugins.
+
+    Fonte: plugins.json (~35MB, ~60k plugins), um array de objetos com pelo menos
+    'slug', 'name', 'active_installs' e 'downloaded'. Apenas os slugs que já existem
+    no nosso banco são atualizados; plugins ausentes da fonte ficam com métricas NULL.
+    """
+    PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+    DATA_DIR = PROJECT_ROOT / "data"
+
+    SOURCE_URL = "https://raw.githubusercontent.com/rix4uni/wordpress-plugins/main/plugins.json"
+
+    def run(self, db: "databaseSQLite") -> None:
+        # Slugs que precisamos enriquecer (já inseridos pelo pipeline de CVEs)
+        db.cursor.execute("SELECT fullpath FROM repositories WHERE ecosystem = 'wordpress'")
+        prefix = WordPressExtractor.FULLPATH_PREFIX
+        our_slugs = {
+            row[0][len(prefix):]
+            for row in db.cursor.fetchall()
+            if row[0] and row[0].startswith(prefix)
+        }
+        if not our_slugs:
+            print("[INFO] wordpress: no WordPress plugins in database; skipping metadata fetch")
+            return
+
+        dest = self.DATA_DIR / "wordpress_plugins.json"
+        print(f"[INFO] wordpress: downloading plugins metadata ({len(our_slugs)} plugins to enrich)...")
+        download_to(self.SOURCE_URL, dest)
+
+        with open(dest, "r", encoding="utf-8") as f:
+            plugins = json.load(f)
+
+        updated = 0
+        for plugin in plugins:
+            slug = (plugin.get("slug") or "").strip().lower()
+            if not slug or slug not in our_slugs:
+                continue
+            db.cursor.execute("""
+            UPDATE repositories SET
+                active_installs = ?,
+                downloaded = ?,
+                name = COALESCE(?, name)
+            WHERE fullpath = ?
+            """, (
+                plugin.get("active_installs"),
+                plugin.get("downloaded"),
+                plugin.get("name"),
+                WordPressExtractor.fullpathFromSlug(slug),
+            ))
+            updated += 1
+            if updated % 500 == 0:
+                db.conn.commit()
+
+        db.conn.commit()
+        dest.unlink(missing_ok=True)
+        print(f"[INFO] wordpress: enriched {updated}/{len(our_slugs)} plugins with install/download metrics")
+
+
 class PoCInGitHub(GitHubArchiveSource):
     """
     Fonte PoC-in-GitHub (nomi-sec/PoC-in-GitHub): mapeia CVE -> repositórios com
@@ -3092,7 +3287,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "update-fixes", "backfill-scores", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "update-fixes", "backfill-scores", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -3263,6 +3458,13 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         PoCInGitHub().run(db)
+        db.conn.close()
+
+    if args.command in ["wordpress", "all"]:
+        print("[INFO] Enriching WordPress plugins with install/download metrics (rix4uni/wordpress-plugins)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        WordPressMetadata().run(db)
         db.conn.close()
 
     if args.command == "backfill-scores":

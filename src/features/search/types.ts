@@ -58,6 +58,9 @@ export interface Repository {
   scm_id_repository: string | null;
   created_repository: string | null;
   updated_repository: string | null;
+  ecosystem: string | null; // 'github' | 'wordpress'
+  active_installs: number | null; // WordPress plugins only
+  downloaded: number | null; // WordPress plugins only
 }
 
 export interface RepositoryRelation {
@@ -122,6 +125,11 @@ export interface SearchFilters {
   customDate: string | null; // For specific date (YYYY-MM-DD)
   repository: string | null; // Filter by specific repository fullpath
   cweCategory: string | null; // Filter by CWE category (e.g., 'rce', 'injection')
+  ecosystem: string | null; // Filter by linked repository ecosystem ('wordpress' | 'github')
+  // Popularity: CVE in a repo matching ANY of the set thresholds (combined with OR)
+  popStarsMin: number | null; // GitHub stars
+  popInstallsMin: number | null; // WordPress active installs
+  popDownloadsMin: number | null; // WordPress downloads
 }
 
 export const defaultFilters: SearchFilters = {
@@ -141,7 +149,11 @@ export const defaultFilters: SearchFilters = {
   datePeriod: 'all',
   customDate: null,
   repository: null,
-  cweCategory: null
+  cweCategory: null,
+  ecosystem: null,
+  popStarsMin: null,
+  popInstallsMin: null,
+  popDownloadsMin: null
 };
 
 export type SortField =
@@ -211,6 +223,9 @@ export interface RepositorySearchFilters {
   sizeMax: number | null;
   hasCVEs: boolean | null;
   hasCommitFix: boolean | null;
+  ecosystem: string | null; // 'github' | 'wordpress' | null (all)
+  activeInstallsMin: number | null; // WordPress plugins
+  downloadedMin: number | null; // WordPress plugins
 }
 
 export const defaultRepositoryFilters: RepositorySearchFilters = {
@@ -221,7 +236,10 @@ export const defaultRepositoryFilters: RepositorySearchFilters = {
   sizeMin: null,
   sizeMax: null,
   hasCVEs: null,
-  hasCommitFix: null
+  hasCommitFix: null,
+  ecosystem: null,
+  activeInstallsMin: null,
+  downloadedMin: null
 };
 
 export interface RepositorySearchResult {
@@ -234,6 +252,9 @@ export interface RepositorySearchResult {
   commits_fix_count: number | null;
   created_repository: string | null;
   updated_repository: string | null;
+  ecosystem: string | null;
+  active_installs: number | null;
+  downloaded: number | null;
 }
 
 export interface RepositorySearchResultsPage {
@@ -252,7 +273,9 @@ export type RepositorySortField =
   | 'cve_count'
   | 'commits_fix_count'
   | 'created_repository'
-  | 'updated_repository';
+  | 'updated_repository'
+  | 'active_installs'
+  | 'downloaded';
 
 export interface RepositorySortConfig {
   field: RepositorySortField;
