@@ -971,6 +971,76 @@ class databaseSQLite:
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert wordpress plugin {slug}: {e}")
 
+    def backfillWordpressClassification(self) -> int:
+        """
+        Reclassifica CVEs que JÁ estão no banco como ecossistema WordPress.
+
+        O pipeline incremental só roda complementCVE quando o CVE reaparece num
+        delta, então CVEs antigos nunca seriam classificados. Aqui varremos as
+        referências já gravadas (cves.list_references), extraímos o slug do plugin
+        e criamos o repositório sintético + o vínculo em cve_repositories. Também
+        alimentamos list_commit com os changesets do Trac. Tudo sem rede e
+        idempotente (INSERT OR IGNORE).
+
+        Returns:
+            Quantidade de CVEs classificadas como WordPress.
+        """
+        # Pré-filtro barato: só CVEs cujas referências mencionam wordpress.org
+        self.cursor.execute(
+            "SELECT cve_id, list_references, list_commit FROM cves "
+            "WHERE list_references LIKE '%wordpress.org%'"
+        )
+        rows = self.cursor.fetchall()
+        classified = 0
+        for cve_id, refs_json, commit_json in rows:
+            try:
+                references = json.loads(refs_json) if refs_json else []
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            slugs = WordPressExtractor.extractFromReferences(references)
+            if not slugs:
+                continue
+
+            # Changesets do Trac viram "commits" de fix; mescla com os existentes.
+            try:
+                commits = json.loads(commit_json) if commit_json else []
+            except (json.JSONDecodeError, TypeError):
+                commits = []
+            commits = list(commits) if isinstance(commits, list) else []
+            added_commit = False
+            for ref in references:
+                url = ref.get("url", "") if isinstance(ref, dict) else ""
+                if "trac.wordpress.org/changeset" in url.lower() and url not in commits:
+                    commits.append(url)
+                    added_commit = True
+            if added_commit:
+                self.cursor.execute(
+                    "UPDATE cves SET list_commit = ?, exists_commit = 1 WHERE cve_id = ?",
+                    (json.dumps(commits), cve_id),
+                )
+
+            commit_blob = " ".join(commits).lower()
+            for slug in slugs:
+                self.insertWordpressRepository(slug)
+                fullpath = WordPressExtractor.fullpathFromSlug(slug)
+                relation = "fix_commit" if (
+                    "trac.wordpress.org/changeset" in commit_blob and slug in commit_blob
+                ) else "referenced"
+                self.cursor.execute(
+                    "INSERT OR IGNORE INTO cve_repositories "
+                    "(cve_id, repository_fullpath, relation_type) VALUES (?, ?, ?)",
+                    (cve_id, fullpath, relation),
+                )
+
+            classified += 1
+            if classified % 1000 == 0:
+                self.conn.commit()
+                print(f"[INFO] wordpress: classified {classified} CVEs so far...")
+
+        self.conn.commit()
+        return classified
+
     def getPendingRepositories(self, limit: int = 100) -> list[str]:
         """
         Retorna lista de repositórios que ainda não foram verificados (is_exists IS NULL).
@@ -3087,7 +3157,15 @@ class WordPressMetadata:
     SOURCE_URL = "https://raw.githubusercontent.com/rix4uni/wordpress-plugins/main/plugins.json"
 
     def run(self, db: "databaseSQLite") -> None:
-        # Slugs que precisamos enriquecer (já inseridos pelo pipeline de CVEs)
+        # Garante as colunas do ecossistema (bancos restaurados de snapshots antigos).
+        db.createTable()
+
+        # Backfill: classifica CVEs já existentes a partir das referências gravadas,
+        # cobrindo o backlog que o pipeline incremental (deltas) nunca reprocessaria.
+        classified = db.backfillWordpressClassification()
+        print(f"[INFO] wordpress: {classified} CVEs classified as WordPress (from stored references)")
+
+        # Slugs que precisamos enriquecer (inseridos pelo pipeline de CVEs + backfill acima)
         db.cursor.execute("SELECT fullpath FROM repositories WHERE ecosystem = 'wordpress'")
         prefix = WordPressExtractor.FULLPATH_PREFIX
         our_slugs = {
