@@ -131,6 +131,30 @@ export function FiltersPanel({
     [filters, onFiltersChange]
   );
 
+  const handleEcosystemChange = useCallback(
+    (value: string) => {
+      onFiltersChange({
+        ...filters,
+        ecosystem: value === 'all' ? null : value
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
+  const handlePopularityChange = useCallback(
+    (
+      key: 'popStarsMin' | 'popInstallsMin' | 'popDownloadsMin',
+      raw: string
+    ) => {
+      const value = raw.trim() === '' ? null : Number(raw);
+      onFiltersChange({
+        ...filters,
+        [key]: value !== null && !Number.isNaN(value) ? value : null
+      });
+    },
+    [filters, onFiltersChange]
+  );
+
   const handleStarsChange = useCallback(
     (value: number[]) => {
       onFiltersChange({
@@ -411,6 +435,76 @@ export function FiltersPanel({
             </div>
           </div>
 
+          {/* Ecosystem Filter */}
+          <div className='space-y-3'>
+            <Label>{t('ecosystem')}</Label>
+            <Select
+              value={filters.ecosystem ?? 'all'}
+              onValueChange={handleEcosystemChange}
+            >
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>{t('ecosystemAll')}</SelectItem>
+                <SelectItem value='github'>GitHub</SelectItem>
+                <SelectItem value='wordpress'>WordPress</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Popularity Filter (stars OR active installs OR downloads) */}
+          <div className='space-y-3'>
+            <Label>{t('popularity')}</Label>
+            <div className='space-y-2'>
+              <div className='space-y-1'>
+                <span className='text-muted-foreground text-xs'>
+                  {t('popStars')}
+                </span>
+                <Input
+                  type='number'
+                  min={0}
+                  placeholder='1000'
+                  value={filters.popStarsMin ?? ''}
+                  onChange={(e) =>
+                    handlePopularityChange('popStarsMin', e.target.value)
+                  }
+                />
+              </div>
+              <div className='space-y-1'>
+                <span className='text-muted-foreground text-xs'>
+                  {t('popInstalls')}
+                </span>
+                <Input
+                  type='number'
+                  min={0}
+                  placeholder='1000'
+                  value={filters.popInstallsMin ?? ''}
+                  onChange={(e) =>
+                    handlePopularityChange('popInstallsMin', e.target.value)
+                  }
+                />
+              </div>
+              <div className='space-y-1'>
+                <span className='text-muted-foreground text-xs'>
+                  {t('popDownloads')}
+                </span>
+                <Input
+                  type='number'
+                  min={0}
+                  placeholder='10000'
+                  value={filters.popDownloadsMin ?? ''}
+                  onChange={(e) =>
+                    handlePopularityChange('popDownloadsMin', e.target.value)
+                  }
+                />
+              </div>
+            </div>
+            <p className='text-muted-foreground text-xs'>
+              {t('popularityHint')}
+            </p>
+          </div>
+
           {/* Language Filter */}
           <div className='space-y-3'>
             <Label>{t('language')}</Label>
@@ -606,5 +700,12 @@ function countActiveFilters(filters: SearchFilters): number {
   if (filters.repoSizeMin !== null || filters.repoSizeMax !== null) count++;
   if (filters.datePeriod !== 'all') count++;
   if (filters.repository) count++;
+  if (filters.ecosystem) count++;
+  if (
+    filters.popStarsMin !== null ||
+    filters.popInstallsMin !== null ||
+    filters.popDownloadsMin !== null
+  )
+    count++;
   return count;
 }

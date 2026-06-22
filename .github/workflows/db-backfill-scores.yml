@@ -1,14 +1,17 @@
-name: DB Snapshots (Incremental)
+name: DB Backfill Scores (Manual One-Shot)
+
+# Fix one-shot: recalcula o CVSS dos CVEs que estão sem score válido (0.0/ausente)
+# no snapshot atual, por causa do bug em que o vetor CVSS morava no container ADP
+# e era ignorado pelo parser. Roda manualmente, reaproveitando o snapshot existente
+# (repos/exploits/PoCs preservados) e dispara o deploy ao final.
 
 on:
   workflow_dispatch:
     inputs:
-      repo_batch_size:
-        description: "Batch size for repository verification"
+      trigger_deploy:
+        description: "Disparar deploy.yml ao final?"
         required: false
-        default: "200"
-  schedule:
-    - cron: "0 7 * * *"
+        default: "true"
 
 permissions:
   contents: write
@@ -19,11 +22,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update-db:
+  backfill-scores:
     runs-on: ubuntu-latest
     env:
       SNAPSHOT_TAG: db-snapshots
-      REPO_BATCH_SIZE: ${{ github.event.inputs.repo_batch_size || '200' }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
@@ -39,39 +41,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests urllib3 beautifulsoup4 cvss
 
-      - name: Ensure Snapshot Release Exists
+      - name: Resolve Latest Snapshot
         id: release
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
             const tag = process.env.SNAPSHOT_TAG;
-            let release;
-            try {
-              release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
-            } catch (e) {
-              if (e.status !== 404) throw e;
-              release = await github.rest.repos.createRelease({
-                owner,
-                repo,
-                tag_name: tag,
-                name: "DB Snapshots",
-                body: "Rolling snapshots for incremental CVE DB state",
-                draft: false,
-                prerelease: false
-              });
-            }
-
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
             const assets = (release.data.assets || [])
               .filter(a => /^snapshot-.*\.tar\.gz$/.test(a.name))
               .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
+            if (!assets[0]) {
+              core.setFailed("No snapshot asset found to backfill. Run db-snapshots first.");
+              return;
+            }
             core.setOutput("release_id", String(release.data.id));
-            core.setOutput("latest_asset_id", assets[0] ? String(assets[0].id) : "");
-            core.setOutput("latest_asset_name", assets[0] ? assets[0].name : "");
+            core.setOutput("latest_asset_id", String(assets[0].id));
+            core.setOutput("latest_asset_name", assets[0].name);
 
       - name: Restore Latest Snapshot
-        if: steps.release.outputs.latest_asset_id != ''
         run: |
           mkdir -p data public/db
           curl -L \
@@ -85,35 +74,19 @@ jobs:
           fi
           echo "Restored snapshot: ${{ steps.release.outputs.latest_asset_name }}"
 
-      - name: Prepare Directories
+      - name: Count Scores Before
         run: |
-          mkdir -p data public/db
+          echo "CVEs without valid score (before):"
+          sqlite3 data/source.sqlite "SELECT COUNT(*) FROM cves c LEFT JOIN cve_scores s ON c.cve_id = s.cve_id AND s.score > 0 WHERE s.cve_id IS NULL;"
 
-      - name: Incremental CVE Update
+      - name: Backfill Scores
         run: |
-          python scripts/create-manifest.py cves --year-auto
+          python scripts/create-manifest.py backfill-scores
 
-      - name: Enrich from GitHub Advisory Database
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Count Scores After
         run: |
-          python scripts/create-manifest.py advisories
-
-      - name: Enrich POCs from PoC-in-GitHub
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python scripts/create-manifest.py pocs
-
-      - name: Enrich WordPress Plugin Metrics
-        run: |
-          python scripts/create-manifest.py wordpress
-
-      - name: Incremental Repository Verification
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python scripts/create-manifest.py repos --batch-size "${REPO_BATCH_SIZE}"
+          echo "CVEs without valid score (after):"
+          sqlite3 data/source.sqlite "SELECT COUNT(*) FROM cves c LEFT JOIN cve_scores s ON c.cve_id = s.cve_id AND s.score > 0 WHERE s.cve_id IS NULL;"
 
       - name: Build DB Artifacts
         run: |
@@ -205,6 +178,7 @@ jobs:
             }
 
       - name: Trigger Deploy
+        if: ${{ github.event.inputs.trigger_deploy != 'false' }}
         uses: actions/github-script@v7
         with:
           script: |

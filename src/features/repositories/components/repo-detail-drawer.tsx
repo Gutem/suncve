@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import {
   IconExternalLink,
   IconBrandGithub,
+  IconBrandWordpress,
   IconStar,
   IconCode,
   IconCalendar,
@@ -15,6 +16,8 @@ import {
   IconGitCommit,
   IconSkull,
   IconFolder,
+  IconUsers,
+  IconDownload,
   IconChevronLeft,
   IconChevronRight,
   IconSearch
@@ -141,6 +144,13 @@ export function RepoDetailDrawer({
   const commitsFixCount = (repository.commits_fix_count as number) ?? 0;
   const createdRepository = repository.created_repository as string | null;
   const updatedRepository = repository.updated_repository as string | null;
+  const ecosystem = (repository.ecosystem as string | null) ?? 'github';
+  const isWordpress = ecosystem === 'wordpress';
+  const activeInstalls = repository.active_installs as number | null;
+  const downloaded = repository.downloaded as number | null;
+  const externalUrl = isWordpress
+    ? `https://${repoFullpath}` // wordpress.org/plugins/<slug>
+    : `https://github.com/${repoFullpath}`;
 
   const languages = parseJSON<Record<string, number>>(
     repository.languages as string
@@ -151,6 +161,13 @@ export function RepoDetailDrawer({
     await navigator.clipboard.writeText(repoFullpath);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const formatCount = (value: number | null): string => {
+    if (value == null) return '—';
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    return value.toLocaleString();
   };
 
   const formatSize = (sizeKB: number | null): string => {
@@ -174,10 +191,22 @@ export function RepoDetailDrawer({
               <div className='flex items-start justify-between gap-4'>
                 <div className='min-w-0 flex-1'>
                   <SheetTitle className='flex items-center gap-2 text-xl'>
-                    <IconBrandGithub className='h-6 w-6 shrink-0' />
+                    {isWordpress ? (
+                      <IconBrandWordpress className='h-6 w-6 shrink-0 text-[#21759b]' />
+                    ) : (
+                      <IconBrandGithub className='h-6 w-6 shrink-0' />
+                    )}
                     <span className='truncate'>
                       {name || repoFullpath.split('/').pop()}
                     </span>
+                    {isWordpress && (
+                      <Badge
+                        variant='outline'
+                        className='border-[#21759b]/50 text-[#21759b]'
+                      >
+                        WordPress
+                      </Badge>
+                    )}
                   </SheetTitle>
                   <div className='mt-2 flex items-center gap-2'>
                     <code className='bg-muted text-muted-foreground truncate rounded px-2 py-1 text-sm'>
@@ -199,12 +228,12 @@ export function RepoDetailDrawer({
                 </div>
                 <Button variant='outline' size='sm' asChild>
                   <a
-                    href={`https://github.com/${repoFullpath}`}
+                    href={externalUrl}
                     target='_blank'
                     rel='noopener noreferrer'
                   >
                     <IconExternalLink className='mr-1 h-4 w-4' />
-                    GitHub
+                    {isWordpress ? 'WordPress.org' : 'GitHub'}
                   </a>
                 </Button>
               </div>
@@ -212,19 +241,35 @@ export function RepoDetailDrawer({
 
             {/* Quick Stats */}
             <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-              <Card>
-                <CardContent className='flex items-center gap-2 p-3'>
-                  <IconStar className='h-4 w-4 shrink-0 text-yellow-500' />
-                  <div className='min-w-0'>
-                    <p className='truncate text-lg font-bold sm:text-2xl'>
-                      {stars.toLocaleString()}
-                    </p>
-                    <p className='text-muted-foreground text-xs'>
-                      {t('stars')}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              {isWordpress ? (
+                <Card>
+                  <CardContent className='flex items-center gap-2 p-3'>
+                    <IconUsers className='h-4 w-4 shrink-0 text-[#21759b]' />
+                    <div className='min-w-0'>
+                      <p className='truncate text-lg font-bold sm:text-2xl'>
+                        {formatCount(activeInstalls)}
+                      </p>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('activeInstalls')}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className='flex items-center gap-2 p-3'>
+                    <IconStar className='h-4 w-4 shrink-0 text-yellow-500' />
+                    <div className='min-w-0'>
+                      <p className='truncate text-lg font-bold sm:text-2xl'>
+                        {stars.toLocaleString()}
+                      </p>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('stars')}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <Card>
                 <CardContent className='flex items-center gap-2 p-3'>
                   <IconBug className='h-4 w-4 shrink-0 text-red-500' />
@@ -249,17 +294,35 @@ export function RepoDetailDrawer({
                   </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className='flex items-center gap-2 p-3'>
-                  <IconFolder className='h-4 w-4 shrink-0 text-blue-500' />
-                  <div className='min-w-0'>
-                    <p className='truncate text-lg font-bold sm:text-2xl'>
-                      {formatSize(size)}
-                    </p>
-                    <p className='text-muted-foreground text-xs'>{t('size')}</p>
-                  </div>
-                </CardContent>
-              </Card>
+              {isWordpress ? (
+                <Card>
+                  <CardContent className='flex items-center gap-2 p-3'>
+                    <IconDownload className='h-4 w-4 shrink-0 text-blue-500' />
+                    <div className='min-w-0'>
+                      <p className='truncate text-lg font-bold sm:text-2xl'>
+                        {formatCount(downloaded)}
+                      </p>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('downloads')}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className='flex items-center gap-2 p-3'>
+                    <IconFolder className='h-4 w-4 shrink-0 text-blue-500' />
+                    <div className='min-w-0'>
+                      <p className='truncate text-lg font-bold sm:text-2xl'>
+                        {formatSize(size)}
+                      </p>
+                      <p className='text-muted-foreground text-xs'>
+                        {t('size')}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             <Separator />

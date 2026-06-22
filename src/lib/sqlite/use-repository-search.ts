@@ -99,6 +99,33 @@ export function useRepositorySearch() {
         }
       }
 
+      // Ecosystem filter (github / wordpress). Older rows may have NULL -> treated as github.
+      if (filters.ecosystem) {
+        if (filters.ecosystem === 'github') {
+          conditions.push(`(r.ecosystem = 'github' OR r.ecosystem IS NULL)`);
+        } else {
+          conditions.push('r.ecosystem = ?');
+          params.push(filters.ecosystem);
+        }
+      }
+
+      // WordPress install/download thresholds. When both are set they combine with OR
+      // (e.g. >1000 active installs OR >10000 downloads); a single one applies on its own.
+      const installCond =
+        filters.activeInstallsMin !== null ? 'r.active_installs >= ?' : null;
+      const downloadCond =
+        filters.downloadedMin !== null ? 'r.downloaded >= ?' : null;
+      if (installCond && downloadCond) {
+        conditions.push(`(${installCond} OR ${downloadCond})`);
+        params.push(filters.activeInstallsMin!, filters.downloadedMin!);
+      } else if (installCond) {
+        conditions.push(installCond);
+        params.push(filters.activeInstallsMin!);
+      } else if (downloadCond) {
+        conditions.push(downloadCond);
+        params.push(filters.downloadedMin!);
+      }
+
       const where =
         conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       return { where, params };
@@ -150,6 +177,12 @@ export function useRepositorySearch() {
           case 'updated_repository':
             orderBy = `r.updated_repository ${sort.order.toUpperCase()} NULLS LAST`;
             break;
+          case 'active_installs':
+            orderBy = `r.active_installs ${sort.order.toUpperCase()} NULLS LAST`;
+            break;
+          case 'downloaded':
+            orderBy = `r.downloaded ${sort.order.toUpperCase()} NULLS LAST`;
+            break;
         }
 
         // Query with CVE count
@@ -171,7 +204,7 @@ export function useRepositorySearch() {
           total_count AS (
             SELECT COUNT(*) as total FROM filtered_repos
           )
-          SELECT 
+          SELECT
             r.fullpath,
             r.name,
             r.stars,
@@ -181,6 +214,9 @@ export function useRepositorySearch() {
             r.commits_fix_count,
             r.created_repository,
             r.updated_repository,
+            r.ecosystem,
+            r.active_installs,
+            r.downloaded,
             tc.total
           FROM repositories r
           INNER JOIN filtered_repos fr ON fr.fullpath = r.fullpath
@@ -210,7 +246,10 @@ export function useRepositorySearch() {
           cve_count: row.cve_count,
           commits_fix_count: row.commits_fix_count,
           created_repository: row.created_repository,
-          updated_repository: row.updated_repository
+          updated_repository: row.updated_repository,
+          ecosystem: row.ecosystem,
+          active_installs: row.active_installs,
+          downloaded: row.downloaded
         }));
 
         return {
