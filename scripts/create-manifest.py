@@ -245,15 +245,25 @@ def generate_db_manifest(
 def calculateScoreCVSS(vector: str, version: str) -> float:
     if CVSS2 is None or CVSS3 is None or CVSS4 is None:
         return 0.0
-    if vector.startswith("CVSS:2"):
-        return CVSS2(vector).scores()[0]
-    elif vector.startswith("CVSS:3"):
-        return CVSS3(vector).scores()[0]
-    elif vector.startswith("CVSS:4"):
-        return CVSS4(vector).scores()[0]
-    elif version == "2.0":
-        return CVSS2(vector).scores()[0]
-    else:
+    if not vector:
+        return 0.0
+    # Normaliza: alguns advisories trazem o vetor com espaços ou "/" sobrando no
+    # final, o que faz a lib do CVSS levantar exceção (ex.: trailing "/").
+    vector = vector.strip().rstrip("/")
+    try:
+        if vector.startswith("CVSS:2"):
+            return CVSS2(vector).scores()[0]
+        elif vector.startswith("CVSS:3"):
+            return CVSS3(vector).scores()[0]
+        elif vector.startswith("CVSS:4"):
+            return CVSS4(vector).scores()[0]
+        elif version == "2.0":
+            return CVSS2(vector).scores()[0]
+        else:
+            return 0.0
+    except Exception as e:
+        # Vetor malformado não pode derrubar todo o pipeline; trata como "sem score".
+        print(f"[WARN] Invalid CVSS vector {vector!r}: {e}")
         return 0.0
 
 class GitHubExtractor:
