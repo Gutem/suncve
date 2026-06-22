@@ -105,6 +105,10 @@ jobs:
         run: |
           python scripts/create-manifest.py pocs
 
+      - name: Enrich WordPress Plugin Metrics
+        run: |
+          python scripts/create-manifest.py wordpress
+
       - name: Incremental Repository Verification
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
