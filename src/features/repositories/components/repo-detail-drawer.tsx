@@ -190,19 +190,19 @@ export function RepoDetailDrawer({
             <SheetHeader className='space-y-4'>
               <div className='flex items-start justify-between gap-4'>
                 <div className='min-w-0 flex-1'>
-                  <SheetTitle className='flex items-center gap-2 text-xl'>
+                  <SheetTitle className='flex min-w-0 items-center gap-2 text-xl'>
                     {isWordpress ? (
                       <IconBrandWordpress className='h-6 w-6 shrink-0 text-[#21759b]' />
                     ) : (
                       <IconBrandGithub className='h-6 w-6 shrink-0' />
                     )}
-                    <span className='truncate'>
+                    <span className='min-w-0 truncate'>
                       {name || repoFullpath.split('/').pop()}
                     </span>
                     {isWordpress && (
                       <Badge
                         variant='outline'
-                        className='border-[#21759b]/50 text-[#21759b]'
+                        className='shrink-0 border-[#21759b]/50 text-[#21759b]'
                       >
                         WordPress
                       </Badge>
@@ -226,7 +226,7 @@ export function RepoDetailDrawer({
                     </Button>
                   </div>
                 </div>
-                <Button variant='outline' size='sm' asChild>
+                <Button variant='outline' size='sm' className='shrink-0' asChild>
                   <a
                     href={externalUrl}
                     target='_blank'

@@ -256,7 +256,7 @@
       "withCVEs": "With CVEs",
       "withCommitFix": "With Commit Fix",
       "topLanguage": "Top Language",
-      "repositories": "GitHub repositories",
+      "repositories": "Repositories",
       "inDatabase": "In the vulnerability database",
       "linkedCVEs": "With linked CVEs",
       "vulnerableRepos": "Repositories with vulnerabilities",

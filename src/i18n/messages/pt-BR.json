@@ -260,7 +260,7 @@
       "withCVEs": "Com CVEs",
       "withCommitFix": "Com Commit Fix",
       "topLanguage": "Linguagem Principal",
-      "repositories": "Repositórios GitHub",
+      "repositories": "Repositórios",
       "inDatabase": "No banco de vulnerabilidades",
       "linkedCVEs": "Com CVEs vinculadas",
       "vulnerableRepos": "Repositórios com vulnerabilidades",

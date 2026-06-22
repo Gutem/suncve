@@ -46,6 +46,7 @@ interface RepoResultsTableProps {
   results: RepositorySearchResultsPage | null;
   sort: RepositorySortConfig;
   isLoading: boolean;
+  ecosystem: string | null;
   onSortChange: (sort: RepositorySortConfig) => void;
   onPageChange: (page: number) => void;
   onRowClick: (repo: RepositorySearchResult) => void;
@@ -55,11 +56,19 @@ export function RepoResultsTable({
   results,
   sort,
   isLoading,
+  ecosystem,
   onSortChange,
   onPageChange,
   onRowClick
 }: RepoResultsTableProps) {
   const t = useTranslations('repositories.table');
+
+  // WordPress plugins have no stars; the metric column shows installs/downloads,
+  // so sorting it should order by download count instead of stars.
+  const isWordpress = ecosystem === 'wordpress';
+  const metricSortField: RepositorySortField = isWordpress
+    ? 'downloaded'
+    : 'stars';
 
   const handleSort = (field: RepositorySortField) => {
     if (sort.field === field) {
@@ -141,10 +150,10 @@ export function RepoResultsTable({
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
-                      onClick={() => handleSort('stars')}
+                      onClick={() => handleSort(metricSortField)}
                     >
-                      {t('stars')}
-                      <SortIcon field='stars' />
+                      {isWordpress ? t('downloads') : t('stars')}
+                      <SortIcon field={metricSortField} />
                     </Button>
                   </TableHead>
                   <TableHead className='w-[120px]'>{t('language')}</TableHead>

@@ -3156,6 +3156,18 @@ class WordPressMetadata:
 
     SOURCE_URL = "https://raw.githubusercontent.com/rix4uni/wordpress-plugins/main/plugins.json"
 
+    @staticmethod
+    def _parseLastUpdated(raw: object) -> str | None:
+        """
+        Normaliza o 'last_updated' do diretório WordPress (ex.: "2026-05-15 2:55am GMT")
+        para uma data ISO (YYYY-MM-DD), sortável e parseável por new Date() no front.
+        Retorna None quando não há data utilizável (mantém o valor existente via COALESCE).
+        """
+        if not isinstance(raw, str):
+            return None
+        match = re.match(r"\s*(\d{4}-\d{2}-\d{2})", raw)
+        return match.group(1) if match else None
+
     def run(self, db: "databaseSQLite") -> None:
         # Garante as colunas do ecossistema (bancos restaurados de snapshots antigos).
         db.createTable()
@@ -3168,14 +3180,27 @@ class WordPressMetadata:
         # Slugs que precisamos enriquecer (inseridos pelo pipeline de CVEs + backfill acima)
         db.cursor.execute("SELECT fullpath FROM repositories WHERE ecosystem = 'wordpress'")
         prefix = WordPressExtractor.FULLPATH_PREFIX
-        our_slugs = {
-            row[0][len(prefix):]
-            for row in db.cursor.fetchall()
+        wp_fullpaths = [
+            row[0] for row in db.cursor.fetchall()
             if row[0] and row[0].startswith(prefix)
-        }
+        ]
+        our_slugs = {fp[len(prefix):] for fp in wp_fullpaths}
         if not our_slugs:
             print("[INFO] wordpress: no WordPress plugins in database; skipping metadata fetch")
             return
+
+        # Plugins WordPress nunca passam pela verificação GraphQL (is_exists=1 na
+        # inserção), que é onde commits_fix é recalculado para repos do GitHub. Sem
+        # isto, a coluna/cartão "fixes" fica sempre zerada mesmo com changesets de
+        # correção classificados pelo backfill acima.
+        fixes_updated = 0
+        for fullpath in wp_fullpaths:
+            db.updateRepositoryCommitsFix(fullpath)
+            fixes_updated += 1
+            if fixes_updated % 500 == 0:
+                db.conn.commit()
+        db.conn.commit()
+        print(f"[INFO] wordpress: recalculated commits_fix for {fixes_updated} plugins")
 
         dest = self.DATA_DIR / "wordpress_plugins.json"
         print(f"[INFO] wordpress: downloading plugins metadata ({len(our_slugs)} plugins to enrich)...")
@@ -3193,12 +3218,14 @@ class WordPressMetadata:
             UPDATE repositories SET
                 active_installs = ?,
                 downloaded = ?,
-                name = COALESCE(?, name)
+                name = COALESCE(?, name),
+                updated_repository = COALESCE(?, updated_repository)
             WHERE fullpath = ?
             """, (
                 plugin.get("active_installs"),
                 plugin.get("downloaded"),
                 plugin.get("name"),
+                self._parseLastUpdated(plugin.get("last_updated")),
                 WordPressExtractor.fullpathFromSlug(slug),
             ))
             updated += 1
