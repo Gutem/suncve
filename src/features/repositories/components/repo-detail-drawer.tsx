@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import {
   IconExternalLink,
   IconBrandGithub,
@@ -63,6 +63,7 @@ import { CVEDetailDrawer } from '@/features/search/components/cve-detail-drawer'
 import { useCVESearch } from '@/lib/sqlite/use-cve-search';
 import { useRepositorySearch } from '@/lib/sqlite/use-repository-search';
 import { cn } from '@/lib/utils';
+import { formatDateLocalized } from '@/lib/format';
 
 const CVE_PAGE_SIZE = 20;
 
@@ -78,6 +79,7 @@ export function RepoDetailDrawer({
   onClose
 }: RepoDetailDrawerProps) {
   const t = useTranslations('repositories.detail');
+  const locale = useLocale();
   const [copied, setCopied] = useState(false);
   const [selectedCveId, setSelectedCveId] = useState<string | null>(null);
   const [selectedCve, setSelectedCve] = useState<Record<
@@ -405,7 +407,7 @@ export function RepoDetailDrawer({
                           <div className='flex items-center gap-2'>
                             <IconCalendar className='text-muted-foreground h-4 w-4' />
                             <span>
-                              {new Date(createdRepository).toLocaleDateString()}
+                              {formatDateLocalized(createdRepository, locale)}
                             </span>
                           </div>
                         </div>
@@ -418,7 +420,7 @@ export function RepoDetailDrawer({
                           <div className='flex items-center gap-2'>
                             <IconCalendar className='text-muted-foreground h-4 w-4' />
                             <span>
-                              {new Date(updatedRepository).toLocaleDateString()}
+                              {formatDateLocalized(updatedRepository, locale)}
                             </span>
                           </div>
                         </div>
@@ -526,11 +528,10 @@ export function RepoDetailDrawer({
                                     </div>
                                   </TableCell>
                                   <TableCell className='text-muted-foreground text-sm'>
-                                    {cve.date_published
-                                      ? new Date(
-                                          cve.date_published
-                                        ).toLocaleDateString()
-                                      : '—'}
+                                    {formatDateLocalized(
+                                      cve.date_published,
+                                      locale
+                                    )}
                                   </TableCell>
                                 </TableRow>
                               );

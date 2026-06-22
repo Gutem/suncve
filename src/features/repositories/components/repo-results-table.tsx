@@ -1,6 +1,6 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import {
   IconChevronUp,
   IconChevronDown,
@@ -41,6 +41,7 @@ import type {
   RepositorySortField
 } from '@/features/search/types';
 import { cn } from '@/lib/utils';
+import { formatDateLocalized } from '@/lib/format';
 
 interface RepoResultsTableProps {
   results: RepositorySearchResultsPage | null;
@@ -62,6 +63,7 @@ export function RepoResultsTable({
   onRowClick
 }: RepoResultsTableProps) {
   const t = useTranslations('repositories.table');
+  const locale = useLocale();
 
   // WordPress plugins have no stars; the metric column shows installs/downloads,
   // so sorting it should order by download count instead of stars.
@@ -301,9 +303,7 @@ export function RepoResultsTable({
                       {repo.size ? formatSize(repo.size) : '—'}
                     </TableCell>
                     <TableCell className='text-muted-foreground text-sm'>
-                      {repo.updated_repository
-                        ? new Date(repo.updated_repository).toLocaleDateString()
-                        : '—'}
+                      {formatDateLocalized(repo.updated_repository, locale)}
                     </TableCell>
                   </TableRow>
                 ))}
