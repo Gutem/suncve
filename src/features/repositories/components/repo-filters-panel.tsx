@@ -321,33 +321,35 @@ export function RepoFiltersPanel({
 
             {filters.ecosystem === 'wordpress' && (
               <div className='space-y-2'>
-                <div className='space-y-1'>
-                  <span className='text-muted-foreground text-xs'>
-                    {t('minActiveInstalls')}
-                  </span>
-                  <Input
-                    type='number'
-                    min={0}
-                    placeholder='1000'
-                    value={filters.activeInstallsMin ?? ''}
-                    onChange={(e) =>
-                      handleNumberFilter('activeInstallsMin', e.target.value)
-                    }
-                  />
-                </div>
-                <div className='space-y-1'>
-                  <span className='text-muted-foreground text-xs'>
-                    {t('minDownloads')}
-                  </span>
-                  <Input
-                    type='number'
-                    min={0}
-                    placeholder='10000'
-                    value={filters.downloadedMin ?? ''}
-                    onChange={(e) =>
-                      handleNumberFilter('downloadedMin', e.target.value)
-                    }
-                  />
+                <div className='grid grid-cols-2 gap-2'>
+                  <div className='space-y-1'>
+                    <span className='text-muted-foreground text-xs'>
+                      {t('minActiveInstalls')}
+                    </span>
+                    <Input
+                      type='number'
+                      min={0}
+                      placeholder='1000'
+                      value={filters.activeInstallsMin ?? ''}
+                      onChange={(e) =>
+                        handleNumberFilter('activeInstallsMin', e.target.value)
+                      }
+                    />
+                  </div>
+                  <div className='space-y-1'>
+                    <span className='text-muted-foreground text-xs'>
+                      {t('minDownloads')}
+                    </span>
+                    <Input
+                      type='number'
+                      min={0}
+                      placeholder='10000'
+                      value={filters.downloadedMin ?? ''}
+                      onChange={(e) =>
+                        handleNumberFilter('downloadedMin', e.target.value)
+                      }
+                    />
+                  </div>
                 </div>
                 <p className='text-muted-foreground text-xs'>
                   {t('thresholdHint')}

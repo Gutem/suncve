@@ -456,7 +456,7 @@ export function FiltersPanel({
           {/* Popularity Filter (stars OR active installs OR downloads) */}
           <div className='space-y-3'>
             <Label>{t('popularity')}</Label>
-            <div className='space-y-2'>
+            <div className='grid grid-cols-3 gap-2'>
               <div className='space-y-1'>
                 <span className='text-muted-foreground text-xs'>
                   {t('popStars')}

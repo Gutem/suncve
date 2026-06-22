@@ -10,7 +10,9 @@ import {
   IconStar,
   IconBug,
   IconGitCommit,
-  IconCode
+  IconCode,
+  IconUsers,
+  IconDownload
 } from '@tabler/icons-react';
 import {
   Table,
@@ -220,7 +222,7 @@ export function RepoResultsTable({
                             className='flex items-center gap-1'
                             title={t('activeInstalls')}
                           >
-                            <span aria-hidden>👥</span>
+                            <IconUsers className='h-4 w-4 shrink-0 text-[#21759b]' />
                             <span className='font-medium'>
                               {repo.active_installs != null
                                 ? formatCount(repo.active_installs)
@@ -231,7 +233,7 @@ export function RepoResultsTable({
                             className='text-muted-foreground flex items-center gap-1'
                             title={t('downloads')}
                           >
-                            <span aria-hidden>⬇️</span>
+                            <IconDownload className='h-4 w-4 shrink-0' />
                             <span>
                               {repo.downloaded != null
                                 ? formatCount(repo.downloaded)
