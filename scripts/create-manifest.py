@@ -1372,6 +1372,34 @@ class databaseSQLite:
                 (cve_id, aff.get("vendor"), aff.get("product")),
             )
 
+    def getCveIdsWithoutValidScore(self) -> set[str]:
+        """
+        Retorna os cve_ids que existem em `cves` mas não possuem nenhum score
+        CVSS válido (sem linha em cve_scores, ou apenas linhas com score 0/NULL).
+
+        Usado pelo backfill de scores: alvo são justamente os CVEs afetados pelo
+        bug em que o vetor CVSS morava no container ADP e era ignorado.
+        """
+        self.cursor.execute(
+            """
+            SELECT c.cve_id
+            FROM cves c
+            LEFT JOIN cve_scores s
+                ON c.cve_id = s.cve_id AND s.score IS NOT NULL AND s.score > 0
+            WHERE s.cve_id IS NULL
+            """
+        )
+        return {row[0] for row in self.cursor.fetchall()}
+
+    def replaceScores(self, cve_id: str, cvss_list: list[dict]) -> None:
+        """Substitui todas as linhas de score de um CVE pelas fornecidas."""
+        self.cursor.execute("DELETE FROM cve_scores WHERE cve_id = ?", (cve_id,))
+        for cvss in cvss_list:
+            self.cursor.execute(
+                "INSERT INTO cve_scores (cve_id, version, score) VALUES (?, ?, ?)",
+                (cve_id, cvss.get("version"), cvss.get("score")),
+            )
+
 class CVElistV5:
     # Paths centralizados - todos relativos ao root do projeto
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
@@ -1877,23 +1905,29 @@ class CVElistV5:
             for ref in cna.get("references", [])
         ]
         
-        # CVSS - tenta pegar do cna, senão busca no adp
-        metrics = cna.get("metrics", [])
-        if not metrics:
-            adp_list = data.get("containers", {}).get("adp", [])
-            for adp in adp_list:
-                metrics.extend(adp.get("metrics", []))
-        
-        cvss = [
-            {
-                "vectorString": value.get("vectorString"),
-                "version": value.get("version"),
-                "score": calculateScoreCVSS(value.get("vectorString", ""), value.get("version", ""))
-            }
-            for metric in metrics
-            for key, value in metric.items()
-            if isinstance(value, dict) and "vectorString" in value
-        ]       
+        # CVSS - tenta pegar do cna, senão busca no adp.
+        # Importante: o fallback precisa acontecer quando o CNA não traz um vetor
+        # CVSS de verdade, e não apenas quando a lista de metrics está vazia. Muitos
+        # CVEs têm no CNA somente uma métrica textual ("other") e o vetor CVSS real
+        # fica no container ADP (adicionado pela CISA/ADP).
+        def _extract_cvss(metrics: list) -> list:
+            return [
+                {
+                    "vectorString": value.get("vectorString"),
+                    "version": value.get("version"),
+                    "score": calculateScoreCVSS(value.get("vectorString", ""), value.get("version", ""))
+                }
+                for metric in metrics
+                for key, value in metric.items()
+                if isinstance(value, dict) and "vectorString" in value
+            ]
+
+        cvss = _extract_cvss(cna.get("metrics", []))
+        if not cvss:
+            adp_metrics = []
+            for adp in data.get("containers", {}).get("adp", []):
+                adp_metrics.extend(adp.get("metrics", []))
+            cvss = _extract_cvss(adp_metrics)
 
         return {
             "cve_id": cve_id,
@@ -2346,6 +2380,97 @@ class CVElistV5:
         print(f"[INFO] Total CVEs scanned: {total_scanned}")
         if require_complete_cve:
             print(f"[INFO] Total CVEs skipped (incomplete): {total_skipped_incomplete}")
+        print("[INFO] Done!")
+
+    def backfillScores(self) -> None:
+        """
+        Backfill one-shot: recalcula o CVSS dos CVEs que estão sem score válido
+        e reescreve cve_scores, sem tocar no resto dos dados (repos, exploits,
+        PoCs, etc).
+
+        Necessário porque o pipeline incremental só reprocessa um CVE quando ele
+        reaparece num delta — então CVEs antigos afetados pelo bug do parser
+        (vetor CVSS no container ADP) ficariam com score 0/ausente para sempre.
+        Roda sobre o dataset completo (all_CVEs.zip) do cvelistV5.
+        """
+        start_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        print(f"[INFO] Backfill scores start: {start_time}")
+        print(f"[INFO] Opening database at {self.SQLITE_DB}")
+
+        db = databaseSQLite(self.SQLITE_DB)
+        db.createTable()
+
+        targets = db.getCveIdsWithoutValidScore()
+        print(f"[INFO] CVEs without a valid score: {len(targets)}")
+        if not targets:
+            print("[INFO] Nothing to backfill. Database already has scores.")
+            db.conn.close()
+            return
+
+        release_info = self.listReleases()
+        download_url = release_info.get("all_cves_url")
+        if not download_url:
+            db.conn.close()
+            raise Exception("No all_CVEs URL found in latest release")
+
+        pathFileZip = self.downloadFile(download_url, self.DOWNLOAD_ZIP)
+        print("[INFO] Unzipping full database...")
+        folderDatabase = self.unzipDatabase(pathFileZip)
+        if folderDatabase is None:
+            db.conn.close()
+            raise Exception("Failed to extract all_CVEs dataset")
+        print(f"[INFO] Database extracted to: {folderDatabase}")
+
+        updated = 0
+        scanned = 0
+        no_vector = 0
+        remaining = set(targets)
+        for file_path in sorted(folderDatabase.rglob("CVE*.json")):
+            if not remaining:
+                break
+            cve_id = file_path.stem.upper()
+            if cve_id not in remaining:
+                continue
+            scanned += 1
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"[WARN] Failed to read {cve_id}: {e}")
+                continue
+
+            formatted = self.formatDataVersion5_2(data)
+            cvss = formatted.get("cvss") if formatted else None
+            # Só reescreve se encontramos pelo menos um score > 0; nunca apaga o
+            # que já existe sem ter algo melhor para colocar no lugar.
+            valid = [c for c in (cvss or []) if (c.get("score") or 0) > 0]
+            if not valid:
+                no_vector += 1
+                remaining.discard(cve_id)
+                continue
+
+            db.replaceScores(cve_id, valid)
+            updated += 1
+            remaining.discard(cve_id)
+
+            if updated % 500 == 0:
+                db.conn.commit()
+                print(f"[INFO] Backfilled scores for {updated} CVEs so far...")
+
+        db.conn.commit()
+        db.conn.close()
+
+        if pathFileZip.exists():
+            pathFileZip.unlink()
+        self.cleanupExtractedFolder(folderDatabase)
+
+        print(f"\n[INFO] ==============================")
+        print(f"[INFO] Backfill complete.")
+        print(f"[INFO] Targets (no valid score): {len(targets)}")
+        print(f"[INFO] Matched JSONs scanned:    {scanned}")
+        print(f"[INFO] CVEs updated with score:  {updated}")
+        print(f"[INFO] Still no CVSS vector:     {no_vector}")
+        print(f"[INFO] Not found in dataset:     {len(remaining)}")
         print("[INFO] Done!")
 
 class findExploits:
@@ -2967,7 +3092,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "update-fixes", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "update-fixes", "backfill-scores", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -2976,6 +3101,7 @@ def main() -> None:
             "'advisories' (enrich CVEs from GitHub Advisory Database), "
             "'pocs' (enrich exploit fields from PoC-in-GitHub), "
             "'update-fixes' (recalculate commits_fix), "
+            "'backfill-scores' (recompute CVSS for CVEs missing a valid score), "
             "'manifest' (generate public/db/manifest.json), "
             "'all' (cves+repos+advisories+pocs+manifest)"
         ),
@@ -3138,6 +3264,10 @@ def main() -> None:
         db = databaseSQLite(db_path)
         PoCInGitHub().run(db)
         db.conn.close()
+
+    if args.command == "backfill-scores":
+        print("[INFO] Backfilling CVSS scores for CVEs missing a valid score...")
+        CVElistV5().backfillScores()
 
     if args.command == "update-fixes":
         print("[INFO] Updating commits_fix for all repositories...")
