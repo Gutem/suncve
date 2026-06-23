@@ -115,6 +115,10 @@ jobs:
         run: |
           python scripts/create-manifest.py repos --batch-size "${REPO_BATCH_SIZE}"
 
+      - name: Recalculate commits_fix for all repositories
+        run: |
+          python scripts/create-manifest.py update-fixes
+
       - name: Build DB Artifacts
         run: |
           bash scripts/build-db-artifacts.sh

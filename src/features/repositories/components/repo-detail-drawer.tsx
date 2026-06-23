@@ -154,6 +154,10 @@ export function RepoDetailDrawer({
     ? `https://${repoFullpath}` // wordpress.org/plugins/<slug>
     : `https://github.com/${repoFullpath}`;
 
+  const displayName = name || repoFullpath.split('/').pop() || '';
+  const truncatedName =
+    displayName.length > 100 ? `${displayName.slice(0, 100)}…` : displayName;
+
   const languages = parseJSON<Record<string, number>>(
     repository.languages as string
   );
@@ -198,8 +202,8 @@ export function RepoDetailDrawer({
                     ) : (
                       <IconBrandGithub className='h-6 w-6 shrink-0' />
                     )}
-                    <span className='min-w-0 truncate'>
-                      {name || repoFullpath.split('/').pop()}
+                    <span className='min-w-0 truncate' title={displayName}>
+                      {truncatedName}
                     </span>
                     {isWordpress && (
                       <Badge
