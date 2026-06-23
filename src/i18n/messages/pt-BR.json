@@ -333,8 +333,8 @@
     "purpose": {
       "badge": "Por que existimos",
       "title": "Por que o SunCVE existe",
-      "lead": "Queremos deixar registrado o motivo do SunCVE existir: analisar commits, diffs e exploits. Essa é a nossa estratégia para entender como CVEs em grandes repositórios acontecem.",
-      "challenge": "Um dos nossos desafios foi conseguir filtrar por tipo de repositório com muitas estrelas e com uma determinada tag, e foi disso que o SunCVE nasceu.",
+      "lead": "O SunCVE existe para responder o que poucas ferramentas respondem: <b>como</b> uma vulnerabilidade realmente nasce e é corrigida dentro do código. Em vez de só listar CVEs, analisamos os <hl>commits</hl>, os <hl>diffs</hl> e os <hl>exploits</hl> de cada falha — ligando o aviso de segurança ao código que o causou e ao que o corrigiu.",
+      "challenge": "Tudo nasceu de um desafio prático: filtrar vulnerabilidades por repositórios <b>populares</b> e por <b>tags específicas</b>, algo que nenhuma base entregava pronto. Hoje o SunCVE cruza <b>dois ecossistemas</b> — GitHub e WordPress — num só lugar, rodando inteiro no seu navegador.",
       "commitsTitle": "Commits",
       "commitsText": "Lemos os commits para encontrar onde a falha foi introduzida e onde foi corrigida.",
       "diffsTitle": "Diffs",
@@ -387,7 +387,7 @@
       "pocTitle": "PoC-in-GitHub",
       "pocText": "Coleção de provas de conceito e exploits públicos associados a CVEs.",
       "wordpressTitle": "Base de plugins WordPress",
-      "wordpressText": "Diretório de plugins do WordPress, com instalações ativas e downloads.",
+      "wordpressText": "Dataset rix4uni/wordpress-plugins do diretório oficial do WordPress, com instalações ativas, downloads e data de atualização (last updated).",
       "visit": "Visitar repositório"
     },
     "contributors": {

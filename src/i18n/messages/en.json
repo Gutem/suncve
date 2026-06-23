@@ -164,7 +164,7 @@
       "withCommitFix": "With Commit Fix",
       "vulnerabilities": "Known vulnerabilities",
       "inDatabase": "In the vulnerability database",
-      "githubRepos": "GitHub repositories",
+      "githubRepos": "Repositories",
       "linkedToCVEs": "Linked to known CVEs",
       "exploitAvailable": "Exploits available",
       "publicExploits": "Public exploit code found",
@@ -249,7 +249,7 @@
   },
   "repositories": {
     "title": "Repository Search",
-    "description": "Search and filter GitHub repositories linked to vulnerabilities",
+    "description": "Search and filter repositories linked to vulnerabilities",
     "searchPlaceholder": "Search by repository name, path...",
     "stats": {
       "totalRepos": "Total Repositories",
@@ -329,8 +329,8 @@
     "purpose": {
       "badge": "Why we exist",
       "title": "Why SunCVE exists",
-      "lead": "We want to put on record why SunCVE exists: to analyze commits, diffs, and exploits. That is our strategy to understand how CVEs in large repositories happen.",
-      "challenge": "One of our challenges was being able to filter by type of repository with many stars and with a specific tag, and that is what SunCVE was born from.",
+      "lead": "SunCVE exists to answer what few tools answer: <b>how</b> a vulnerability is actually born and fixed inside the code. Instead of just listing CVEs, we analyze the <hl>commits</hl>, the <hl>diffs</hl> and the <hl>exploits</hl> of each flaw — linking the security advisory to the code that caused it and the code that fixed it.",
+      "challenge": "It all started from a practical challenge: filtering vulnerabilities by <b>popular</b> repositories and by <b>specific tags</b>, something no database offered out of the box. Today SunCVE bridges <b>two ecosystems</b> — GitHub and WordPress — in one place, running entirely in your browser.",
       "commitsTitle": "Commits",
       "commitsText": "We read commits to find where a flaw was introduced and where it was fixed.",
       "diffsTitle": "Diffs",
@@ -383,7 +383,7 @@
       "pocTitle": "PoC-in-GitHub",
       "pocText": "Collection of public proofs of concept and exploits associated with CVEs.",
       "wordpressTitle": "WordPress plugins database",
-      "wordpressText": "WordPress plugin directory, with active installs and downloads.",
+      "wordpressText": "rix4uni/wordpress-plugins dataset from the official WordPress directory, with active installs, downloads and last updated date.",
       "visit": "Visit repository"
     },
     "contributors": {

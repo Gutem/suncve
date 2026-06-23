@@ -179,7 +179,7 @@ export default function ReadmePageContent() {
     {
       title: t('sources.wordpressTitle'),
       text: t('sources.wordpressText'),
-      url: 'https://wordpress.org/plugins/',
+      url: 'https://github.com/rix4uni/wordpress-plugins',
       color: 'text-cyan-500',
       bg: 'bg-cyan-500/10'
     }
@@ -203,9 +203,25 @@ export default function ReadmePageContent() {
           />
           <Card className='from-primary/5 to-card bg-gradient-to-t'>
             <CardContent className='space-y-3 pt-0'>
-              <p className='text-base leading-relaxed'>{t('purpose.lead')}</p>
+              <p className='text-base leading-relaxed'>
+                {t.rich('purpose.lead', {
+                  b: (c) => (
+                    <strong className='text-foreground font-semibold'>{c}</strong>
+                  ),
+                  hl: (c) => (
+                    <span className='text-primary font-semibold'>{c}</span>
+                  )
+                })}
+              </p>
               <p className='text-muted-foreground leading-relaxed'>
-                {t('purpose.challenge')}
+                {t.rich('purpose.challenge', {
+                  b: (c) => (
+                    <strong className='text-foreground font-semibold'>{c}</strong>
+                  ),
+                  hl: (c) => (
+                    <span className='text-primary font-semibold'>{c}</span>
+                  )
+                })}
               </p>
             </CardContent>
           </Card>
@@ -228,6 +244,17 @@ export default function ReadmePageContent() {
           </div>
         </section>
 
+        {/* Contributors */}
+        <section className='space-y-4'>
+          <SectionHeading
+            icon={IconUsers}
+            badge={t('contributors.badge')}
+            title={t('contributors.title')}
+            lead={t('contributors.lead')}
+          />
+          <Contributors />
+        </section>
+
         {/* What SunCVE offers */}
         <section className='space-y-4'>
           <SectionHeading
@@ -239,11 +266,13 @@ export default function ReadmePageContent() {
           <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3'>
             {offerItems.map((item) => (
               <Card key={item.title} className='@container/card gap-3'>
-                <CardHeader className='flex-row items-center gap-3'>
-                  <div className={`rounded-full p-2 ${item.bg}`}>
-                    <item.icon className={`size-5 ${item.color}`} />
+                <CardHeader className='gap-2'>
+                  <div className='flex items-center gap-3'>
+                    <div className={`rounded-full p-2 ${item.bg}`}>
+                      <item.icon className={`size-5 ${item.color}`} />
+                    </div>
+                    <CardTitle className='text-base'>{item.title}</CardTitle>
                   </div>
-                  <CardTitle className='text-base'>{item.title}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className='text-muted-foreground text-sm leading-relaxed'>
@@ -310,17 +339,6 @@ export default function ReadmePageContent() {
               </Card>
             ))}
           </div>
-        </section>
-
-        {/* Contributors */}
-        <section className='space-y-4'>
-          <SectionHeading
-            icon={IconUsers}
-            badge={t('contributors.badge')}
-            title={t('contributors.title')}
-            lead={t('contributors.lead')}
-          />
-          <Contributors />
         </section>
 
         {/* Footer note */}
