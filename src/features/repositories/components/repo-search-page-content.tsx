@@ -74,16 +74,21 @@ function RepositorySearchPageContentInner() {
     topLanguages: { language: string; count: number }[];
   }>({ totalRepos: 0, withCVEs: 0, withCommitFix: 0, topLanguages: [] });
 
-  // Keep the sort field meaningful per ecosystem: WordPress plugins have no stars
-  // (sort by downloads instead), and stars is the sensible default elsewhere.
+  // Keep the sort field meaningful per ecosystem: package ecosystems
+  // (WordPress/npm/Packagist) are ranked by downloads, while stars is the sensible
+  // default for plain GitHub repositories.
   useEffect(() => {
-    if (filters.ecosystem === 'wordpress') {
+    const isPackageEcosystem =
+      filters.ecosystem === 'wordpress' ||
+      filters.ecosystem === 'npm' ||
+      filters.ecosystem === 'packagist';
+    if (isPackageEcosystem) {
       setSort((prev) =>
-        prev.field === 'stars' ? { field: 'downloaded', order: 'desc' } : prev
+        prev.field === 'stars' ? { field: 'downloads', order: 'desc' } : prev
       );
     } else {
       setSort((prev) =>
-        prev.field === 'downloaded' || prev.field === 'active_installs'
+        prev.field === 'downloads' || prev.field === 'active_installs'
           ? { field: 'stars', order: 'desc' }
           : prev
       );
@@ -231,7 +236,6 @@ function RepositorySearchPageContentInner() {
           results={results}
           sort={sort}
           isLoading={isSearching || isPending}
-          ecosystem={filters.ecosystem}
           onSortChange={setSort}
           onPageChange={setPage}
           onRowClick={handleRowClick}

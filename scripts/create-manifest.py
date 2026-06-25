@@ -721,7 +721,9 @@ class databaseSQLite:
             updated_repository TEXT,
             ecosystem TEXT DEFAULT 'github',
             active_installs INTEGER,
-            downloaded INTEGER
+            downloaded INTEGER,
+            package_url TEXT,
+            downloads INTEGER
         )
         """)
         
@@ -736,11 +738,26 @@ class databaseSQLite:
             "ALTER TABLE repositories ADD COLUMN ecosystem TEXT DEFAULT 'github'",
             "ALTER TABLE repositories ADD COLUMN active_installs INTEGER",
             "ALTER TABLE repositories ADD COLUMN downloaded INTEGER",
+            # Métricas de pacote unificadas (npm/Packagist/WordPress)
+            "ALTER TABLE repositories ADD COLUMN package_url TEXT",
+            "ALTER TABLE repositories ADD COLUMN downloads INTEGER",
         ):
             try:
                 self.cursor.execute(column_ddl)
             except sqlite3.OperationalError:
                 pass  # Coluna já existe
+
+        # Backfill único: a coluna 'downloads' unifica as métricas de download de todos
+        # os ecossistemas. Snapshots antigos só têm os downloads do WordPress em
+        # 'downloaded'; trazemos esse valor para a coluna canônica. A coluna física
+        # 'downloaded' é mantida apenas por compatibilidade com snapshots distribuídos.
+        try:
+            self.cursor.execute(
+                "UPDATE repositories SET downloads = downloaded "
+                "WHERE downloads IS NULL AND downloaded IS NOT NULL"
+            )
+        except sqlite3.OperationalError:
+            pass
 
         # 1. Tabela Principal de CVEs
         self.cursor.execute("""
@@ -822,6 +839,7 @@ class databaseSQLite:
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_cve ON cve_repositories(cve_id)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_fullpath ON cve_repositories(repository_fullpath)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_ecosystem ON repositories(ecosystem)")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_downloads ON repositories(downloads)")
         
         """
         EXEMPLOS DE QUERY CONSULTA:
@@ -1430,6 +1448,34 @@ class databaseSQLite:
                      "about", "settings", "advisories", "security"):
             return None
         return f"{owner}/{repo}"
+
+    def enrichPackage(
+        self,
+        fullpath: str,
+        ecosystem: str,
+        package_url: str | None,
+        downloads: int | None,
+    ) -> bool:
+        """
+        Enriquece um repositório GitHub já existente com metadados de pacote
+        (npm/Packagist): marca o ecossistema, a URL do pacote no registro e a
+        contagem de downloads. Só atualiza repos já verificados (is_exists=1),
+        nunca cria linhas novas. COALESCE preserva valores já gravados quando a
+        fonte atual não tem o dado. Retorna True se alguma linha foi alterada.
+        """
+        if not fullpath:
+            return False
+        self.cursor.execute(
+            """
+            UPDATE repositories SET
+                ecosystem = ?,
+                package_url = COALESCE(?, package_url),
+                downloads = COALESCE(?, downloads)
+            WHERE fullpath = ? AND is_exists = 1
+            """,
+            (ecosystem, package_url, downloads, fullpath),
+        )
+        return self.cursor.rowcount > 0
 
     def cveExists(self, cve_id: str) -> bool:
         self.cursor.execute("SELECT 1 FROM cves WHERE cve_id = ?", (cve_id,))
@@ -3217,7 +3263,7 @@ class WordPressMetadata:
             db.cursor.execute("""
             UPDATE repositories SET
                 active_installs = ?,
-                downloaded = ?,
+                downloads = ?,
                 name = COALESCE(?, name),
                 updated_repository = COALESCE(?, updated_repository)
             WHERE fullpath = ?
@@ -3393,6 +3439,267 @@ class GitHubAdvisory(GitHubArchiveSource):
         return count
 
 
+class NpmPackages:
+    """
+    Enriquece repositórios GitHub já existentes com o pacote npm correspondente.
+
+    Fluxo (cruza referência <-> pacote):
+    1. Baixa data/packages.json de nice-registry/all-the-package-repos
+       (chave = slug do pacote, valor = URL do repositório; pode ou não terminar em .git).
+    2. Inverte o mapa para fullpath GitHub -> [slugs], apenas para repos que já temos.
+    3. Resolve a última branch 'build-*' de nice-registry/download-counts (slug -> downloads)
+       e clona com --depth=1 para ler as contagens só dos slugs que precisamos.
+    4. Para cada repo casado grava ecosystem='npm', package_url (npmjs) e downloads.
+    """
+    PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+    DATA_DIR = PROJECT_ROOT / "data"
+    SOURCE_NAME = "npm-packages"
+
+    PACKAGES_URLS = (
+        "https://raw.githubusercontent.com/nice-registry/all-the-package-repos/master/data/packages.json",
+        "https://raw.githubusercontent.com/nice-registry/all-the-package-repos/main/data/packages.json",
+    )
+    DOWNLOAD_COUNTS_GIT = "https://github.com/nice-registry/download-counts.git"
+
+    @staticmethod
+    def _iterSlugRepo(packages):
+        """Normaliza o packages.json em pares (slug, repoUrl), aceitando dict ou lista."""
+        if isinstance(packages, dict):
+            for slug, repo in packages.items():
+                if isinstance(repo, str):
+                    yield slug, repo
+                elif isinstance(repo, dict):
+                    url = repo.get("repository") or repo.get("url")
+                    if url:
+                        yield slug, url
+        elif isinstance(packages, list):
+            for item in packages:
+                if not isinstance(item, dict):
+                    continue
+                slug = item.get("name") or item.get("slug")
+                repo = item.get("repository") or item.get("repo") or item.get("url")
+                if slug and isinstance(repo, str):
+                    yield slug, repo
+
+    def _resolveLatestBuildBranch(self) -> str | None:
+        """Última branch 'build-*' via git ls-remote (uma chamada, sem clonar tudo)."""
+        import subprocess
+        try:
+            out = subprocess.run(
+                ["git", "ls-remote", "--heads", self.DOWNLOAD_COUNTS_GIT, "build-*"],
+                capture_output=True, text=True, timeout=120, check=True,
+            ).stdout
+        except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
+            print(f"[WARN] npm: could not list download-counts branches: {e}")
+            return None
+        branches = [
+            line.split("refs/heads/", 1)[1].strip()
+            for line in out.splitlines()
+            if "refs/heads/build-" in line
+        ]
+        # Nomes 'build-2.YYYYMMDD.N' ordenam lexicograficamente == cronologicamente.
+        return max(branches) if branches else None
+
+    @staticmethod
+    def _loadDownloadCounts(clone_dir: Path) -> dict:
+        """Lê o mapa slug -> downloads do branch clonado (download-counts.json)."""
+        candidates = sorted(
+            clone_dir.glob("*.json"),
+            key=lambda p: p.stat().st_size,
+            reverse=True,
+        )
+        # Prioriza o arquivo canônico; senão, o maior JSON que seja um dict de números.
+        ordered = sorted(candidates, key=lambda p: p.name != "download-counts.json")
+        for path in ordered:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if isinstance(data, dict) and data:
+                return data
+        return {}
+
+    def run(self, db: "databaseSQLite") -> None:
+        import subprocess
+        import tempfile
+
+        db.createTable()
+
+        # 1. Repos GitHub já verificados que podem ser pacotes npm.
+        db.cursor.execute(
+            "SELECT fullpath FROM repositories "
+            "WHERE (ecosystem = 'github' OR ecosystem IS NULL) AND is_exists = 1"
+        )
+        our_fullpaths = {row[0] for row in db.cursor.fetchall() if row[0]}
+        if not our_fullpaths:
+            print("[INFO] npm: no verified GitHub repositories to match; skipping")
+            return
+
+        # 2. Baixa packages.json (slug -> repo) e inverte só para os repos que temos.
+        dest = self.DATA_DIR / "all-the-package-repos.json"
+        packages = None
+        for url in self.PACKAGES_URLS:
+            try:
+                download_to(url, dest)
+                packages = json.loads(dest.read_text(encoding="utf-8"))
+                break
+            except (REQUEST_EXCEPTION, json.JSONDecodeError, OSError) as e:
+                print(f"[WARN] npm: failed to fetch {url}: {e}")
+        if packages is None:
+            print("[WARN] npm: could not load all-the-package-repos; skipping")
+            dest.unlink(missing_ok=True)
+            return
+
+        fullpath_to_slugs: dict[str, list[str]] = {}
+        for slug, repo_url in self._iterSlugRepo(packages):
+            fullpath = db._fullpathFromUrl(repo_url)
+            if fullpath and fullpath in our_fullpaths:
+                fullpath_to_slugs.setdefault(fullpath, []).append(slug)
+        dest.unlink(missing_ok=True)
+
+        if not fullpath_to_slugs:
+            print("[INFO] npm: no GitHub repositories matched an npm package; skipping")
+            return
+        print(f"[INFO] npm: {len(fullpath_to_slugs)} repositories matched an npm package")
+
+        # 3. Contagens de download da última branch build-* (clone shallow temporário).
+        counts: dict = {}
+        branch = self._resolveLatestBuildBranch()
+        if branch:
+            with tempfile.TemporaryDirectory() as tmp:
+                clone_dir = Path(tmp) / "download-counts"
+                try:
+                    subprocess.run(
+                        ["git", "clone", "--depth=1", "--single-branch",
+                         "--branch", branch, self.DOWNLOAD_COUNTS_GIT, str(clone_dir)],
+                        capture_output=True, text=True, timeout=600, check=True,
+                    )
+                    counts = self._loadDownloadCounts(clone_dir)
+                    print(f"[INFO] npm: loaded {len(counts)} download counts from {branch}")
+                except (subprocess.SubprocessError, OSError) as e:
+                    print(f"[WARN] npm: failed to clone download-counts@{branch}: {e}")
+        else:
+            print("[WARN] npm: no build-* branch resolved; enriching without download counts")
+
+        # 4. Enriquecimento: em monorepos (vários pacotes no mesmo repo) usa o de maior
+        #    contagem de downloads como representante.
+        enriched = 0
+        for fullpath, slugs in fullpath_to_slugs.items():
+            best_slug = max(
+                slugs,
+                key=lambda s: counts.get(s) or counts.get(s.lower()) or 0,
+            )
+            downloads = counts.get(best_slug) or counts.get(best_slug.lower())
+            downloads = int(downloads) if isinstance(downloads, (int, float)) else None
+            package_url = f"https://www.npmjs.com/package/{best_slug}"
+            if db.enrichPackage(fullpath, "npm", package_url, downloads):
+                enriched += 1
+            if enriched % 500 == 0:
+                db.conn.commit()
+        db.conn.commit()
+
+        started = datetime.now(timezone.utc).isoformat()
+        db.updateSource(self.SOURCE_NAME, started, started, branch or "", base_release_file=branch or "")
+        print(f"[INFO] npm: enriched {enriched} repositories with npm package metadata")
+
+
+class PackagistPackages:
+    """
+    Enriquece repositórios GitHub já existentes com o pacote Packagist correspondente.
+
+    Fluxo:
+    1. Baixa o export OSV de Packagist (all.zip) e coleta affected[].package.name únicos.
+    2. Para cada pacote consulta a API do Packagist (.package.repository e
+       .package.downloads.total).
+    3. Cruza o repositório do pacote com os repos que já temos das referências; em um
+       match grava ecosystem='packagist', package_url e downloads.
+    """
+    PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+    DATA_DIR = PROJECT_ROOT / "data"
+    SOURCE_NAME = "packagist"
+
+    OSV_URL = "https://storage.googleapis.com/osv-vulnerabilities/Packagist/all.zip"
+    API_URL = "https://packagist.org/packages/{name}.json"
+
+    def _collectPackageNames(self) -> list[str]:
+        zip_path = self.DATA_DIR / "packagist-osv.zip"
+        extract_dir = self.DATA_DIR / "packagist-osv"
+        try:
+            download_to(self.OSV_URL, zip_path)
+            if extract_dir.exists():
+                shutil.rmtree(extract_dir)
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(extract_dir)
+        except (REQUEST_EXCEPTION, OSError, zipfile.BadZipFile) as e:
+            print(f"[WARN] packagist: failed to download/extract OSV export: {e}")
+            zip_path.unlink(missing_ok=True)
+            return []
+        finally:
+            zip_path.unlink(missing_ok=True)
+
+        names: set[str] = set()
+        for json_path in extract_dir.glob("**/*.json"):
+            try:
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            for aff in data.get("affected", []) if isinstance(data, dict) else []:
+                pkg = aff.get("package", {}) if isinstance(aff, dict) else {}
+                name = pkg.get("name")
+                if name and "/" in name:
+                    names.add(name)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        return sorted(names)
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        names = self._collectPackageNames()
+        if not names:
+            print("[INFO] packagist: no package names from OSV export; skipping")
+            return
+        print(f"[INFO] packagist: {len(names)} unique Packagist packages from OSV")
+
+        db.cursor.execute(
+            "SELECT fullpath FROM repositories "
+            "WHERE (ecosystem = 'github' OR ecosystem IS NULL) AND is_exists = 1"
+        )
+        our_fullpaths = {row[0] for row in db.cursor.fetchall() if row[0]}
+        if not our_fullpaths:
+            print("[INFO] packagist: no verified GitHub repositories to match; skipping")
+            return
+
+        enriched = 0
+        for i, name in enumerate(names, 1):
+            try:
+                resp = http_get(self.API_URL.format(name=name))
+                if resp.status_code != 200:
+                    continue
+                pkg = resp.json().get("package", {})
+            except (REQUEST_EXCEPTION, ValueError) as e:
+                print(f"[WARN] packagist: failed to fetch {name}: {e}")
+                continue
+
+            fullpath = db._fullpathFromUrl(pkg.get("repository") or "")
+            if not fullpath or fullpath not in our_fullpaths:
+                continue
+            total = (pkg.get("downloads") or {}).get("total")
+            total = int(total) if isinstance(total, (int, float)) else None
+            package_url = f"https://packagist.org/packages/{name}"
+            if db.enrichPackage(fullpath, "packagist", package_url, total):
+                enriched += 1
+
+            if i % 200 == 0:
+                db.conn.commit()
+                print(f"[INFO] packagist: processed {i}/{len(names)} packages ({enriched} enriched)")
+            time.sleep(0.05)  # educado com a API pública do Packagist
+        db.conn.commit()
+
+        started = datetime.now(timezone.utc).isoformat()
+        db.updateSource(self.SOURCE_NAME, started, started, str(len(names)))
+        print(f"[INFO] packagist: enriched {enriched} repositories with Packagist metadata")
+
+
 def main() -> None:
     import argparse
     import os
@@ -3402,7 +3709,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "update-fixes", "backfill-scores", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "npm", "packagist", "update-fixes", "backfill-scores", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -3410,10 +3717,13 @@ def main() -> None:
             "'cves-ids' (import specific CVE IDs), "
             "'advisories' (enrich CVEs from GitHub Advisory Database), "
             "'pocs' (enrich exploit fields from PoC-in-GitHub), "
+            "'wordpress' (enrich WordPress plugins with install/download metrics), "
+            "'npm' (enrich repos with npm package metadata from nice-registry), "
+            "'packagist' (enrich repos with Packagist package metadata), "
             "'update-fixes' (recalculate commits_fix), "
             "'backfill-scores' (recompute CVSS for CVEs missing a valid score), "
             "'manifest' (generate public/db/manifest.json), "
-            "'all' (cves+repos+advisories+pocs+manifest)"
+            "'all' (cves+repos+advisories+pocs+wordpress+npm+packagist+manifest)"
         ),
     )
     parser.add_argument(
@@ -3580,6 +3890,20 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         WordPressMetadata().run(db)
+        db.conn.close()
+
+    if args.command in ["npm", "all"]:
+        print("[INFO] Enriching repositories with npm package metadata (nice-registry)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        NpmPackages().run(db)
+        db.conn.close()
+
+    if args.command in ["packagist", "all"]:
+        print("[INFO] Enriching repositories with Packagist package metadata (OSV + Packagist API)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        PackagistPackages().run(db)
         db.conn.close()
 
     if args.command == "backfill-scores":

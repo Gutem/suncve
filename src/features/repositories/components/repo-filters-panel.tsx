@@ -116,20 +116,20 @@ export function RepoFiltersPanel({
   const handleEcosystemChange = useCallback(
     (value: string) => {
       const ecosystem = value === 'all' ? null : value;
-      // Clear WordPress-only thresholds when leaving the WordPress ecosystem
+      // active_installs is WordPress-only; clear it when leaving WordPress.
+      // downloads is the unified metric and applies to any ecosystem, so it stays.
       onFiltersChange({
         ...filters,
         ecosystem,
         activeInstallsMin:
-          ecosystem === 'wordpress' ? filters.activeInstallsMin : null,
-        downloadedMin: ecosystem === 'wordpress' ? filters.downloadedMin : null
+          ecosystem === 'wordpress' ? filters.activeInstallsMin : null
       });
     },
     [filters, onFiltersChange]
   );
 
   const handleNumberFilter = useCallback(
-    (key: 'activeInstallsMin' | 'downloadedMin', raw: string) => {
+    (key: 'activeInstallsMin' | 'downloadsMin', raw: string) => {
       const value = raw.trim() === '' ? null : Number(raw);
       onFiltersChange({
         ...filters,
@@ -302,7 +302,7 @@ export function RepoFiltersPanel({
             </div>
           </div>
 
-          {/* Ecosystem Filter (GitHub / WordPress) */}
+          {/* Ecosystem Filter (GitHub / WordPress / npm / Packagist) */}
           <div className='space-y-3'>
             <Label>{t('ecosystem')}</Label>
             <Select
@@ -316,40 +316,42 @@ export function RepoFiltersPanel({
                 <SelectItem value='all'>{t('ecosystemAll')}</SelectItem>
                 <SelectItem value='github'>GitHub</SelectItem>
                 <SelectItem value='wordpress'>WordPress</SelectItem>
+                <SelectItem value='npm'>npm</SelectItem>
+                <SelectItem value='packagist'>Packagist</SelectItem>
               </SelectContent>
             </Select>
 
+            {/* Min downloads — unified metric, applies to any ecosystem */}
+            <div className='space-y-1'>
+              <span className='text-muted-foreground text-xs'>
+                {t('minDownloads')}
+              </span>
+              <Input
+                type='number'
+                min={0}
+                placeholder='10000'
+                value={filters.downloadsMin ?? ''}
+                onChange={(e) =>
+                  handleNumberFilter('downloadsMin', e.target.value)
+                }
+              />
+            </div>
+
             {filters.ecosystem === 'wordpress' && (
               <div className='space-y-2'>
-                <div className='grid grid-cols-2 gap-2'>
-                  <div className='space-y-1'>
-                    <span className='text-muted-foreground text-xs'>
-                      {t('minActiveInstalls')}
-                    </span>
-                    <Input
-                      type='number'
-                      min={0}
-                      placeholder='1000'
-                      value={filters.activeInstallsMin ?? ''}
-                      onChange={(e) =>
-                        handleNumberFilter('activeInstallsMin', e.target.value)
-                      }
-                    />
-                  </div>
-                  <div className='space-y-1'>
-                    <span className='text-muted-foreground text-xs'>
-                      {t('minDownloads')}
-                    </span>
-                    <Input
-                      type='number'
-                      min={0}
-                      placeholder='10000'
-                      value={filters.downloadedMin ?? ''}
-                      onChange={(e) =>
-                        handleNumberFilter('downloadedMin', e.target.value)
-                      }
-                    />
-                  </div>
+                <div className='space-y-1'>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('minActiveInstalls')}
+                  </span>
+                  <Input
+                    type='number'
+                    min={0}
+                    placeholder='1000'
+                    value={filters.activeInstallsMin ?? ''}
+                    onChange={(e) =>
+                      handleNumberFilter('activeInstallsMin', e.target.value)
+                    }
+                  />
                 </div>
                 <p className='text-muted-foreground text-xs'>
                   {t('thresholdHint')}
@@ -407,7 +409,7 @@ function countActiveFilters(filters: RepositorySearchFilters): number {
   if (filters.hasCVEs !== null) count++;
   if (filters.hasCommitFix !== null) count++;
   if (filters.ecosystem !== null) count++;
-  if (filters.activeInstallsMin !== null || filters.downloadedMin !== null)
+  if (filters.activeInstallsMin !== null || filters.downloadsMin !== null)
     count++;
   return count;
 }

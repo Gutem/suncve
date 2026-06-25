@@ -6,6 +6,9 @@ import {
   IconExternalLink,
   IconBrandGithub,
   IconBrandWordpress,
+  IconBrandNpm,
+  IconBrandPhp,
+  IconPackage,
   IconStar,
   IconCode,
   IconCalendar,
@@ -148,8 +151,10 @@ export function RepoDetailDrawer({
   const updatedRepository = repository.updated_repository as string | null;
   const ecosystem = (repository.ecosystem as string | null) ?? 'github';
   const isWordpress = ecosystem === 'wordpress';
+  const isPackage = ecosystem === 'npm' || ecosystem === 'packagist';
   const activeInstalls = repository.active_installs as number | null;
-  const downloaded = repository.downloaded as number | null;
+  const downloads = repository.downloads as number | null;
+  const packageUrl = repository.package_url as string | null;
   const externalUrl = isWordpress
     ? `https://${repoFullpath}` // wordpress.org/plugins/<slug>
     : `https://github.com/${repoFullpath}`;
@@ -197,20 +202,26 @@ export function RepoDetailDrawer({
               <div className='flex items-start justify-between gap-4'>
                 <div className='min-w-0 flex-1'>
                   <SheetTitle className='flex min-w-0 items-center gap-2 text-xl'>
-                    {isWordpress ? (
-                      <IconBrandWordpress className='h-6 w-6 shrink-0 text-[#21759b]' />
-                    ) : (
-                      <IconBrandGithub className='h-6 w-6 shrink-0' />
-                    )}
+                    {(() => {
+                      const meta = getEcosystemMeta(ecosystem);
+                      return (
+                        <meta.Icon
+                          className={cn('h-6 w-6 shrink-0', meta.textClass)}
+                        />
+                      );
+                    })()}
                     <span className='min-w-0 truncate' title={displayName}>
                       {truncatedName}
                     </span>
-                    {isWordpress && (
+                    {ecosystem !== 'github' && (
                       <Badge
                         variant='outline'
-                        className='shrink-0 border-[#21759b]/50 text-[#21759b]'
+                        className={cn(
+                          'shrink-0',
+                          getEcosystemMeta(ecosystem).borderClass
+                        )}
                       >
-                        WordPress
+                        {getEcosystemMeta(ecosystem).label}
                       </Badge>
                     )}
                   </SheetTitle>
@@ -300,13 +311,13 @@ export function RepoDetailDrawer({
                   </div>
                 </CardContent>
               </Card>
-              {isWordpress ? (
+              {isWordpress || isPackage ? (
                 <Card>
                   <CardContent className='flex items-center gap-2 p-3'>
                     <IconDownload className='h-4 w-4 shrink-0 text-blue-500' />
                     <div className='min-w-0'>
                       <p className='truncate text-lg font-bold sm:text-2xl'>
-                        {formatCount(downloaded)}
+                        {formatCount(downloads)}
                       </p>
                       <p className='text-muted-foreground text-xs'>
                         {t('downloads')}
@@ -349,6 +360,25 @@ export function RepoDetailDrawer({
                 </AccordionTrigger>
                 <AccordionContent>
                   <div className='space-y-4'>
+                    {/* Package registry URL (npm / Packagist) */}
+                    {packageUrl && (
+                      <div>
+                        <p className='text-muted-foreground mb-2 text-sm'>
+                          {t('package')}
+                        </p>
+                        <a
+                          href={packageUrl}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='text-primary inline-flex items-center gap-1 text-sm hover:underline'
+                        >
+                          <IconPackage className='h-4 w-4 shrink-0' />
+                          <span className='truncate'>{packageUrl}</span>
+                          <IconExternalLink className='h-3 w-3 shrink-0' />
+                        </a>
+                      </div>
+                    )}
+
                     {/* Main Language */}
                     {languageMain && (
                       <div>
@@ -596,6 +626,39 @@ export function RepoDetailDrawer({
       />
     </Sheet>
   );
+}
+
+function getEcosystemMeta(ecosystem: string) {
+  switch (ecosystem) {
+    case 'wordpress':
+      return {
+        label: 'WordPress',
+        Icon: IconBrandWordpress,
+        textClass: 'text-[#21759b]',
+        borderClass: 'border-[#21759b]/50 text-[#21759b]'
+      };
+    case 'npm':
+      return {
+        label: 'npm',
+        Icon: IconBrandNpm,
+        textClass: 'text-[#cb3837]',
+        borderClass: 'border-[#cb3837]/50 text-[#cb3837]'
+      };
+    case 'packagist':
+      return {
+        label: 'Packagist',
+        Icon: IconBrandPhp,
+        textClass: 'text-[#6082bc]',
+        borderClass: 'border-[#6082bc]/50 text-[#6082bc]'
+      };
+    default:
+      return {
+        label: 'GitHub',
+        Icon: IconBrandGithub,
+        textClass: '',
+        borderClass: ''
+      };
+  }
 }
 
 // Helper function

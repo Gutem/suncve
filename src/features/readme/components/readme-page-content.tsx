@@ -182,6 +182,20 @@ export default function ReadmePageContent() {
       url: 'https://github.com/rix4uni/wordpress-plugins',
       color: 'text-cyan-500',
       bg: 'bg-cyan-500/10'
+    },
+    {
+      title: t('sources.npmTitle'),
+      text: t('sources.npmText'),
+      url: 'https://github.com/nice-registry/all-the-package-repos',
+      color: 'text-rose-500',
+      bg: 'bg-rose-500/10'
+    },
+    {
+      title: t('sources.packagistTitle'),
+      text: t('sources.packagistText'),
+      url: 'https://packagist.org',
+      color: 'text-indigo-500',
+      bg: 'bg-indigo-500/10'
     }
   ];
 

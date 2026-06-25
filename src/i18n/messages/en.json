@@ -286,6 +286,7 @@
     },
     "table": {
       "repository": "Repository",
+      "ecosystem": "Ecosystem",
       "stars": "Stars",
       "language": "Language",
       "cves": "CVEs",
@@ -305,6 +306,7 @@
       "activeInstalls": "Active Installs",
       "downloads": "Downloads",
       "size": "Size",
+      "package": "Package",
       "repoInfo": "Repository Info",
       "mainLanguage": "Main Language",
       "languages": "Languages",
@@ -384,6 +386,10 @@
       "pocText": "Collection of public proofs of concept and exploits associated with CVEs.",
       "wordpressTitle": "WordPress plugins database",
       "wordpressText": "rix4uni/wordpress-plugins dataset from the official WordPress directory, with active installs, downloads and last updated date.",
+      "npmTitle": "npm packages",
+      "npmText": "nice-registry/all-the-package-repos maps each npm package to its repository, cross-referenced with download counts from nice-registry/download-counts to enrich GitHub repos with package URL and downloads.",
+      "packagistTitle": "Packagist packages",
+      "packagistText": "OSV Packagist export plus the Packagist API resolve each affected Composer package to its repository and total downloads, matched against the repositories from our references.",
       "visit": "Visit repository"
     },
     "contributors": {

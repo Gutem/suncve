@@ -526,6 +526,37 @@ export async function ensureDatabaseStored(
 }
 
 /**
+ * Migrações defensivas aplicadas ao banco recém-aberto.
+ *
+ * O snapshot é carregado read-only do disco, mas o sql.js o mantém em memória de
+ * forma gravável (as alterações não são persistidas). Isso garante que um snapshot
+ * mais antigo, gerado antes destas colunas existirem, não quebre as queries que
+ * fazem SELECT delas — fechando a janela entre publicar o front e regenerar o
+ * snapshot. As DDLs são idempotentes: se a coluna já existe, o erro é ignorado.
+ */
+function applyClientSchemaMigrations(db: SqlJsDatabase): void {
+  const addColumns = [
+    'ALTER TABLE repositories ADD COLUMN downloads INTEGER',
+    'ALTER TABLE repositories ADD COLUMN package_url TEXT'
+  ];
+  for (const sql of addColumns) {
+    try {
+      db.run(sql);
+    } catch {
+      // Coluna já existe (snapshot já migrado) — ignora.
+    }
+  }
+  // Unifica os downloads legados do WordPress ('downloaded') na coluna canônica.
+  try {
+    db.run(
+      'UPDATE repositories SET downloads = downloaded WHERE downloads IS NULL AND downloaded IS NOT NULL'
+    );
+  } catch {
+    // 'downloaded' pode não existir em snapshots muito antigos — ignora.
+  }
+}
+
+/**
  * Abre o banco de dados
  */
 export async function openDatabase(
@@ -537,6 +568,7 @@ export async function openDatabase(
   if (store.location === 'opfs' && store.handle) {
     const bytes = await readOpfsFile(store.handle);
     const db = new SQL.Database(bytes);
+    applyClientSchemaMigrations(db);
     return {
       db,
       SQL,
@@ -548,6 +580,7 @@ export async function openDatabase(
 
   if (store.location === 'memory' && store.buffer) {
     const db = new SQL.Database(store.buffer);
+    applyClientSchemaMigrations(db);
     return {
       db,
       SQL,
@@ -592,6 +625,7 @@ export async function loadDatabaseFromUrl(
   });
 
   const db = new SQL.Database(buffer);
+  applyClientSchemaMigrations(db);
   return {
     db,
     SQL,

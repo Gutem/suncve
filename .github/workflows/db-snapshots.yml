@@ -115,6 +115,16 @@ jobs:
         run: |
           python scripts/create-manifest.py repos --batch-size "${REPO_BATCH_SIZE}"
 
+      - name: Enrich npm Package Metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/create-manifest.py npm
+
+      - name: Enrich Packagist Package Metadata
+        run: |
+          python scripts/create-manifest.py packagist
+
       - name: Recalculate commits_fix for all repositories
         run: |
           python scripts/create-manifest.py update-fixes
