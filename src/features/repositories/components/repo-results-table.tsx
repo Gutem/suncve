@@ -7,11 +7,12 @@ import {
   IconSelector,
   IconBrandGithub,
   IconBrandWordpress,
+  IconBrandNpm,
+  IconBrandPhp,
   IconStar,
   IconBug,
   IconGitCommit,
   IconCode,
-  IconUsers,
   IconDownload
 } from '@tabler/icons-react';
 import {
@@ -47,7 +48,6 @@ interface RepoResultsTableProps {
   results: RepositorySearchResultsPage | null;
   sort: RepositorySortConfig;
   isLoading: boolean;
-  ecosystem: string | null;
   onSortChange: (sort: RepositorySortConfig) => void;
   onPageChange: (page: number) => void;
   onRowClick: (repo: RepositorySearchResult) => void;
@@ -57,20 +57,12 @@ export function RepoResultsTable({
   results,
   sort,
   isLoading,
-  ecosystem,
   onSortChange,
   onPageChange,
   onRowClick
 }: RepoResultsTableProps) {
   const t = useTranslations('repositories.table');
   const locale = useLocale();
-
-  // WordPress plugins have no stars; the metric column shows installs/downloads,
-  // so sorting it should order by download count instead of stars.
-  const isWordpress = ecosystem === 'wordpress';
-  const metricSortField: RepositorySortField = isWordpress
-    ? 'downloaded'
-    : 'stars';
 
   const handleSort = (field: RepositorySortField) => {
     if (sort.field === field) {
@@ -135,7 +127,7 @@ export function RepoResultsTable({
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='min-w-[800px]'>
+            <Table className='min-w-[1000px]'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='min-w-[250px]'>
@@ -148,14 +140,25 @@ export function RepoResultsTable({
                       <SortIcon field='fullpath' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[140px]'>
+                  <TableHead className='w-[120px]'>{t('ecosystem')}</TableHead>
+                  <TableHead className='w-[110px]'>
                     <Button
                       variant='ghost'
                       className='h-8 p-0 font-semibold hover:bg-transparent'
-                      onClick={() => handleSort(metricSortField)}
+                      onClick={() => handleSort('stars')}
                     >
-                      {isWordpress ? t('downloads') : t('stars')}
-                      <SortIcon field={metricSortField} />
+                      {t('stars')}
+                      <SortIcon field='stars' />
+                    </Button>
+                  </TableHead>
+                  <TableHead className='w-[120px]'>
+                    <Button
+                      variant='ghost'
+                      className='h-8 p-0 font-semibold hover:bg-transparent'
+                      onClick={() => handleSort('downloads')}
+                    >
+                      {t('downloads')}
+                      <SortIcon field='downloads' />
                     </Button>
                   </TableHead>
                   <TableHead className='w-[120px]'>{t('language')}</TableHead>
@@ -207,19 +210,9 @@ export function RepoResultsTable({
                           <IconBrandGithub className='text-muted-foreground h-5 w-5 shrink-0' />
                         )}
                         <div className='min-w-0'>
-                          <div className='flex items-center gap-2'>
-                            <span className='truncate font-medium'>
-                              {repo.name || repo.fullpath.split('/').pop()}
-                            </span>
-                            {repo.ecosystem === 'wordpress' && (
-                              <Badge
-                                variant='outline'
-                                className='shrink-0 border-[#21759b]/50 text-[#21759b]'
-                              >
-                                WordPress
-                              </Badge>
-                            )}
-                          </div>
+                          <span className='block truncate font-medium'>
+                            {repo.name || repo.fullpath.split('/').pop()}
+                          </span>
                           <div className='text-muted-foreground truncate text-xs'>
                             {repo.fullpath}
                           </div>
@@ -227,36 +220,37 @@ export function RepoResultsTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      {repo.ecosystem === 'wordpress' ? (
-                        <div className='flex flex-col gap-0.5 text-sm'>
-                          <span
-                            className='flex items-center gap-1'
-                            title={t('activeInstalls')}
+                      {(() => {
+                        const meta = getEcosystemMeta(repo.ecosystem);
+                        return (
+                          <Badge
+                            variant='outline'
+                            className={cn('gap-1', meta.borderClass)}
                           >
-                            <IconUsers className='h-4 w-4 shrink-0 text-[#21759b]' />
-                            <span className='font-medium'>
-                              {repo.active_installs != null
-                                ? formatCount(repo.active_installs)
-                                : '—'}
-                            </span>
-                          </span>
-                          <span
-                            className='text-muted-foreground flex items-center gap-1'
-                            title={t('downloads')}
-                          >
-                            <IconDownload className='h-4 w-4 shrink-0' />
-                            <span>
-                              {repo.downloaded != null
-                                ? formatCount(repo.downloaded)
-                                : '—'}
-                            </span>
-                          </span>
-                        </div>
-                      ) : repo.stars != null ? (
+                            <meta.Icon className={cn('h-3 w-3', meta.textClass)} />
+                            {meta.label}
+                          </Badge>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {repo.stars != null ? (
                         <div className='flex items-center gap-1'>
                           <IconStar className='h-4 w-4 text-yellow-500' />
                           <span className='font-medium'>
                             {formatStars(repo.stars)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className='text-muted-foreground'>—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {repo.downloads != null ? (
+                        <div className='flex items-center gap-1'>
+                          <IconDownload className='text-muted-foreground h-4 w-4' />
+                          <span className='font-medium'>
+                            {formatCount(repo.downloads)}
                           </span>
                         </div>
                       ) : (
@@ -386,11 +380,13 @@ function TableSkeleton() {
               overscrollBehaviorX: 'contain'
             }}
           >
-            <Table className='min-w-[800px]'>
+            <Table className='min-w-[1000px]'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='min-w-[250px]'>Repository</TableHead>
-                  <TableHead className='w-[100px]'>Stars</TableHead>
+                  <TableHead className='w-[120px]'>Ecosystem</TableHead>
+                  <TableHead className='w-[110px]'>Stars</TableHead>
+                  <TableHead className='w-[120px]'>Downloads</TableHead>
                   <TableHead className='w-[120px]'>Language</TableHead>
                   <TableHead className='w-[100px]'>CVEs</TableHead>
                   <TableHead className='w-[100px]'>Fixes</TableHead>
@@ -403,6 +399,12 @@ function TableSkeleton() {
                   <TableRow key={i}>
                     <TableCell>
                       <Skeleton className='h-10 w-full rounded' />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className='h-6 w-20 rounded-full' />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className='h-5 w-16 rounded' />
                     </TableCell>
                     <TableCell>
                       <Skeleton className='h-5 w-16 rounded' />
@@ -431,6 +433,39 @@ function TableSkeleton() {
       </div>
     </div>
   );
+}
+
+function getEcosystemMeta(ecosystem: string | null) {
+  switch (ecosystem) {
+    case 'wordpress':
+      return {
+        label: 'WordPress',
+        Icon: IconBrandWordpress,
+        textClass: 'text-[#21759b]',
+        borderClass: 'border-[#21759b]/50 text-[#21759b]'
+      };
+    case 'npm':
+      return {
+        label: 'npm',
+        Icon: IconBrandNpm,
+        textClass: 'text-[#cb3837]',
+        borderClass: 'border-[#cb3837]/50 text-[#cb3837]'
+      };
+    case 'packagist':
+      return {
+        label: 'Packagist',
+        Icon: IconBrandPhp,
+        textClass: 'text-[#6082bc]',
+        borderClass: 'border-[#6082bc]/50 text-[#6082bc]'
+      };
+    default:
+      return {
+        label: 'GitHub',
+        Icon: IconBrandGithub,
+        textClass: 'text-muted-foreground',
+        borderClass: 'text-muted-foreground'
+      };
+  }
 }
 
 function formatStars(stars: number): string {

@@ -109,21 +109,22 @@ export function useRepositorySearch() {
         }
       }
 
-      // WordPress install/download thresholds. When both are set they combine with OR
+      // Install/download thresholds. Active installs is WordPress-only; downloads is the
+      // unified metric (npm/Packagist/WordPress). When both are set they combine with OR
       // (e.g. >1000 active installs OR >10000 downloads); a single one applies on its own.
       const installCond =
         filters.activeInstallsMin !== null ? 'r.active_installs >= ?' : null;
       const downloadCond =
-        filters.downloadedMin !== null ? 'r.downloaded >= ?' : null;
+        filters.downloadsMin !== null ? 'r.downloads >= ?' : null;
       if (installCond && downloadCond) {
         conditions.push(`(${installCond} OR ${downloadCond})`);
-        params.push(filters.activeInstallsMin!, filters.downloadedMin!);
+        params.push(filters.activeInstallsMin!, filters.downloadsMin!);
       } else if (installCond) {
         conditions.push(installCond);
         params.push(filters.activeInstallsMin!);
       } else if (downloadCond) {
         conditions.push(downloadCond);
-        params.push(filters.downloadedMin!);
+        params.push(filters.downloadsMin!);
       }
 
       const where =
@@ -180,8 +181,8 @@ export function useRepositorySearch() {
           case 'active_installs':
             orderBy = `r.active_installs ${sort.order.toUpperCase()} NULLS LAST`;
             break;
-          case 'downloaded':
-            orderBy = `r.downloaded ${sort.order.toUpperCase()} NULLS LAST`;
+          case 'downloads':
+            orderBy = `r.downloads ${sort.order.toUpperCase()} NULLS LAST`;
             break;
         }
 
@@ -216,7 +217,8 @@ export function useRepositorySearch() {
             r.updated_repository,
             r.ecosystem,
             r.active_installs,
-            r.downloaded,
+            r.downloads,
+            r.package_url,
             tc.total
           FROM repositories r
           INNER JOIN filtered_repos fr ON fr.fullpath = r.fullpath
@@ -249,7 +251,8 @@ export function useRepositorySearch() {
           updated_repository: row.updated_repository,
           ecosystem: row.ecosystem,
           active_installs: row.active_installs,
-          downloaded: row.downloaded
+          downloads: row.downloads,
+          package_url: row.package_url
         }));
 
         return {

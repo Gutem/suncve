@@ -58,9 +58,10 @@ export interface Repository {
   scm_id_repository: string | null;
   created_repository: string | null;
   updated_repository: string | null;
-  ecosystem: string | null; // 'github' | 'wordpress'
+  ecosystem: string | null; // 'github' | 'wordpress' | 'npm' | 'packagist'
   active_installs: number | null; // WordPress plugins only
-  downloaded: number | null; // WordPress plugins only
+  downloads: number | null; // unified download count (npm/Packagist/WordPress)
+  package_url: string | null; // registry URL (npm/Packagist)
 }
 
 export interface RepositoryRelation {
@@ -125,7 +126,7 @@ export interface SearchFilters {
   customDate: string | null; // For specific date (YYYY-MM-DD)
   repository: string | null; // Filter by specific repository fullpath
   cweCategory: string | null; // Filter by CWE category (e.g., 'rce', 'injection')
-  ecosystem: string | null; // Filter by linked repository ecosystem ('wordpress' | 'github')
+  ecosystem: string | null; // Filter by linked repository ecosystem ('github' | 'wordpress' | 'npm' | 'packagist')
   // Popularity: CVE in a repo matching ANY of the set thresholds (combined with OR)
   popStarsMin: number | null; // GitHub stars
   popInstallsMin: number | null; // WordPress active installs
@@ -223,9 +224,9 @@ export interface RepositorySearchFilters {
   sizeMax: number | null;
   hasCVEs: boolean | null;
   hasCommitFix: boolean | null;
-  ecosystem: string | null; // 'github' | 'wordpress' | null (all)
+  ecosystem: string | null; // 'github' | 'wordpress' | 'npm' | 'packagist' | null (all)
   activeInstallsMin: number | null; // WordPress plugins
-  downloadedMin: number | null; // WordPress plugins
+  downloadsMin: number | null; // unified downloads (any ecosystem)
 }
 
 export const defaultRepositoryFilters: RepositorySearchFilters = {
@@ -239,7 +240,7 @@ export const defaultRepositoryFilters: RepositorySearchFilters = {
   hasCommitFix: null,
   ecosystem: null,
   activeInstallsMin: null,
-  downloadedMin: null
+  downloadsMin: null
 };
 
 export interface RepositorySearchResult {
@@ -254,7 +255,8 @@ export interface RepositorySearchResult {
   updated_repository: string | null;
   ecosystem: string | null;
   active_installs: number | null;
-  downloaded: number | null;
+  downloads: number | null;
+  package_url: string | null;
 }
 
 export interface RepositorySearchResultsPage {
@@ -275,7 +277,7 @@ export type RepositorySortField =
   | 'created_repository'
   | 'updated_repository'
   | 'active_installs'
-  | 'downloaded';
+  | 'downloads';
 
 export interface RepositorySortConfig {
   field: RepositorySortField;
