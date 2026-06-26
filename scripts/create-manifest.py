@@ -3455,9 +3455,12 @@ class NpmPackages:
     DATA_DIR = PROJECT_ROOT / "data"
     SOURCE_NAME = "npm-packages"
 
+    # data/packages.json é rastreado via Git LFS (~238MB); o raw.githubusercontent
+    # devolve apenas o ponteiro LFS, então usamos o endpoint media que serve o
+    # conteúdo real do arquivo. Chave = slug do pacote, valor = URL do repo (ou null).
     PACKAGES_URLS = (
-        "https://raw.githubusercontent.com/nice-registry/all-the-package-repos/master/data/packages.json",
-        "https://raw.githubusercontent.com/nice-registry/all-the-package-repos/main/data/packages.json",
+        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/master/data/packages.json",
+        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/main/data/packages.json",
     )
     DOWNLOAD_COUNTS_GIT = "https://github.com/nice-registry/download-counts.git"
 
@@ -3541,7 +3544,10 @@ class NpmPackages:
         for url in self.PACKAGES_URLS:
             try:
                 download_to(url, dest)
-                packages = json.loads(dest.read_text(encoding="utf-8"))
+                # Lê direto do arquivo (~238MB) para não manter o texto inteiro e o
+                # objeto parseado em memória ao mesmo tempo.
+                with open(dest, "r", encoding="utf-8") as f:
+                    packages = json.load(f)
                 break
             except (REQUEST_EXCEPTION, json.JSONDecodeError, OSError) as e:
                 print(f"[WARN] npm: failed to fetch {url}: {e}")
