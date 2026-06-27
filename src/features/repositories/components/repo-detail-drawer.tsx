@@ -515,13 +515,16 @@ export function RepoDetailDrawer({
                                   className='hover:bg-muted/50 cursor-pointer transition-colors'
                                   onClick={() => handleCveClick(cve.cve_id)}
                                 >
-                                  <TableCell>
+                                  <TableCell className='max-w-0 overflow-hidden'>
                                     <span className='text-primary font-mono text-sm font-medium hover:underline'>
                                       {cve.cve_id}
                                     </span>
                                     {cve.title && (
-                                      <p className='text-muted-foreground mt-1 line-clamp-1 text-xs'>
-                                        {cve.title}
+                                      <p
+                                        className='text-muted-foreground mt-1 truncate text-xs'
+                                        title={cve.title}
+                                      >
+                                        {cve.title.substring(0, 100)}
                                       </p>
                                     )}
                                   </TableCell>
