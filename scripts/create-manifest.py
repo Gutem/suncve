@@ -3770,12 +3770,11 @@ class NpmPackages:
     fonte de verdade descoberta por RepoManifestScanner (repo_manifests.npm_name,
     lido do package.json raiz na branch default).
 
-    Fluxo:
-    1. Resolve a última branch 'build-*' de nice-registry/download-counts
-       (slug -> downloads) e clona --depth=1 para ler o mapa de contagens.
-    2. Para cada repo com npm_name no cache, valida que o nome EXISTE no
-       download-counts (prova de publicação no npm) e grava ecosystem='npm',
-       package_url (npmjs/<npm_name>) e downloads.
+    Existência/contagens: download-counts. O nome é um pacote npm publicado sse
+    estiver no mapa nome -> downloads, que também fornece o número de downloads. O
+    NOME em si vem sempre do manifesto (repo_manifests.npm_name); o download-counts
+    só responde "esse nome existe no npm?" e "quantos downloads?". Grava
+    ecosystem='npm', package_url (npmjs/<npm_name>) e downloads.
     """
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
@@ -3804,22 +3803,27 @@ class NpmPackages:
 
     @staticmethod
     def _loadDownloadCounts(clone_dir: Path) -> dict:
-        """Lê o mapa slug -> downloads do branch clonado (download-counts.json)."""
-        candidates = sorted(
-            clone_dir.glob("*.json"),
-            key=lambda p: p.stat().st_size,
-            reverse=True,
-        )
-        # Prioriza o arquivo canônico; senão, o maior JSON que seja um dict de números.
-        ordered = sorted(candidates, key=lambda p: p.name != "download-counts.json")
-        for path in ordered:
+        """
+        Lê o mapa nome -> downloads do branch clonado. O download-counts FRAGMENTA os
+        dados em vários shards (counts0.json, counts1.json, ...; ~3,6M pacotes no
+        total) mais um state.json de metadados — então o mapa só fica completo quando
+        TODOS os counts*.json são mesclados (ler um único shard, como antes, perdia a
+        imensa maioria dos pacotes, p.ex. 'openclaw').
+        """
+        merged: dict = {}
+        shards = sorted(clone_dir.glob("counts*.json"))
+        if not shards:
+            # Fallback defensivo (se o esquema de nomes mudar): qualquer .json de
+            # contagens, menos o metadado conhecido.
+            shards = [p for p in clone_dir.glob("*.json") if p.name != "state.json"]
+        for path in shards:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 continue
-            if isinstance(data, dict) and data:
-                return data
-        return {}
+            if isinstance(data, dict):
+                merged.update(data)
+        return merged
 
     def run(self, db: "databaseSQLite") -> None:
         import subprocess
@@ -3838,9 +3842,8 @@ class NpmPackages:
             return
         print(f"[INFO] npm: {len(candidates)} repositories have a package.json name to validate")
 
-        # 2. Contagens de download da última branch build-*. Além de fornecer os
-        #    downloads, a presença do nome no mapa é a prova de que o pacote existe
-        #    de fato no npm (evita gravar package_url para um nome nunca publicado).
+        # 2. Contagens de download da última branch build-* (clone shallow). O mapa é a
+        #    prova de existência no npm e a fonte dos números — daí ler TODOS os shards.
         counts: dict = {}
         branch = self._resolveLatestBuildBranch()
         if branch:
@@ -3860,22 +3863,21 @@ class NpmPackages:
             print("[WARN] npm: no download-counts available to validate names; skipping")
             return
 
-        # 3. Reset retroativo: limpa o enriquecimento npm de repos já varridos (o
-        #    download-counts é um snapshot completo, então "ausente" é definitivo). Os
+        # 3. Reset retroativo: limpa o enriquecimento npm de repos já varridos. Os
         #    repos válidos são reconfirmados no loop abaixo; falsos-positivos da lógica
         #    antiga voltam a 'github'. Repos ainda não varridos não são tocados.
         reset = db.resetScannedPackageEnrichment("npm")
         if reset:
             print(f"[INFO] npm: reset {reset} previously-enriched repos (will reconfirm valid ones)")
 
-        # 4. Enriquecimento: só nomes que existem no download-counts (publicados).
+        # 4. Enriquecimento: só nomes presentes no download-counts (publicados no npm).
         enriched = 0
         for fullpath, npm_name in candidates:
             downloads = counts.get(npm_name)
             if downloads is None:
                 downloads = counts.get(npm_name.lower())
             if downloads is None:
-                continue  # nome não está no npm: não enriquece
+                continue  # nome não é pacote npm publicado
             downloads = int(downloads) if isinstance(downloads, (int, float)) else None
             package_url = f"https://www.npmjs.com/package/{npm_name}"
             if db.enrichPackage(fullpath, "npm", package_url, downloads):
