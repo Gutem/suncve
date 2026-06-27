@@ -121,6 +121,10 @@ jobs:
         run: |
           python scripts/create-manifest.py scan-manifests
 
+      - name: Override npm Names from OSV Feed (CVE->package)
+        run: |
+          python scripts/create-manifest.py osv-npm
+
       - name: Enrich npm Package Metadata
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

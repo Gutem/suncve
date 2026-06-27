@@ -1558,6 +1558,41 @@ class databaseSQLite:
             ),
         )
 
+    def overrideManifestNpmName(self, fullpath: str, npm_name: str) -> bool:
+        """
+        Define/sobrescreve APENAS o npm_name canônico de um repo em repo_manifests,
+        preservando composer_name/default_branch (UPSERT). Usado pela fonte OSV (npm),
+        cujo mapeamento CVE->pacote é mais confiável que o manifesto raiz lido por
+        RepoManifestScanner. Retorna True quando o nome de fato mudou.
+        """
+        if not fullpath or not npm_name:
+            return False
+        self.cursor.execute(
+            """
+            INSERT INTO repo_manifests (fullpath, npm_name, checked_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(fullpath) DO UPDATE SET
+                npm_name = excluded.npm_name,
+                checked_at = excluded.checked_at
+            WHERE repo_manifests.npm_name IS NOT excluded.npm_name
+            """,
+            (fullpath, npm_name, datetime.now(timezone.utc).isoformat()),
+        )
+        return self.cursor.rowcount > 0
+
+    def getCveGithubRepos(self, cve_id: str) -> list[str]:
+        """
+        Repositórios GitHub (owner/repo) relacionados a um CVE, em qualquer
+        relation_type. Filtra pseudo-repos do WordPress (wordpress.org/plugins/<slug>,
+        que têm 2 barras) exigindo exatamente uma '/'.
+        """
+        self.cursor.execute(
+            "SELECT repository_fullpath FROM cve_repositories WHERE cve_id = ?",
+            (cve_id,),
+        )
+        return [row[0] for row in self.cursor.fetchall()
+                if row[0] and row[0].count("/") == 1]
+
     def resetScannedPackageEnrichment(self, ecosystem: str, missing_name_column: str | None = None) -> int:
         """
         Reverte para 'github' (limpando package_url/downloads) os repos JÁ VARRIDOS
@@ -3971,6 +4006,117 @@ class PackagistPackages:
         print(f"[INFO] packagist: enriched {enriched} repositories with Packagist metadata")
 
 
+class OsvNpmPackages:
+    """
+    Fonte OSV (npm): storage.googleapis.com/osv-vulnerabilities/npm/all.zip.
+
+    Lê APENAS os advisories GHSA-*.json do snapshot e usa o mapeamento autoritativo
+    CVE -> nome do pacote npm (aliases + affected[].package.name) para fixar o pacote
+    dos repositórios já relacionados àquela CVE no banco (cve_repositories). Como vem
+    do feed OSV do npm, o nome é uma fonte de verdade mais confiável que o manifesto
+    raiz, então SOBRESCREVE repo_manifests.npm_name. O enriquecimento final
+    (ecosystem='npm', package_url, downloads) é feito pelo comando 'npm' a seguir.
+
+    Retroativo: varre o snapshot completo a cada execução e casa por aliases com os
+    CVEs já existentes (cveExists); CVEs ausentes ou sem repositório relacionado são
+    ignoradas, e nenhuma CVE nova é criada.
+    """
+    PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+    DATA_DIR = PROJECT_ROOT / "data"
+    SOURCE_NAME = "osv-npm"
+
+    SOURCE_URL = "https://storage.googleapis.com/osv-vulnerabilities/npm/all.zip"
+
+    @staticmethod
+    def _cveAliases(data: dict) -> list[str]:
+        """Aliases que são CVEs (uppercased), ex.: ['CVE-2025-25289']."""
+        return [
+            a.upper()
+            for a in (data.get("aliases") or [])
+            if isinstance(a, str) and a.upper().startswith("CVE-")
+        ]
+
+    @staticmethod
+    def _npmNamesFromAffected(data: dict) -> list[str]:
+        """Nomes de pacote npm DISTINTOS em affected[] (package.ecosystem == 'npm')."""
+        names: list[str] = []
+        for aff in data.get("affected", []):
+            if not isinstance(aff, dict):
+                continue
+            pkg = aff.get("package") or {}
+            if (pkg.get("ecosystem") or "").lower() != "npm":
+                continue
+            name = pkg.get("name")
+            if isinstance(name, str) and name.strip():
+                clean = name.strip()
+                if clean not in names:
+                    names.append(clean)
+        return names
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        dest = self.DATA_DIR / "osv-npm-all.zip"
+        print(f"[INFO] osv-npm: downloading {self.SOURCE_URL} ...")
+        download_to(self.SOURCE_URL, dest)
+
+        scanned = ambiguous = matched = overridden = 0
+        with zipfile.ZipFile(dest, "r") as zf:
+            for name in zf.namelist():
+                base = name.rsplit("/", 1)[-1]
+                # Só os advisories GHSA-*.json; ignora os demais ids do feed.
+                if not (base.startswith("GHSA-") and base.endswith(".json")):
+                    continue
+                try:
+                    data = json.loads(zf.read(name))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+
+                scanned += 1
+
+                npm_names = self._npmNamesFromAffected(data)
+                # Só atribuímos quando o pacote é inequívoco: 0 = sem pacote npm;
+                # >1 = não dá para saber qual nome mapeia a qual repo -> pula.
+                if len(npm_names) != 1:
+                    if len(npm_names) > 1:
+                        ambiguous += 1
+                    continue
+                npm_name = npm_names[0]
+
+                cve_ids = self._cveAliases(data)
+                if not cve_ids:
+                    continue
+
+                for cve_id in cve_ids:
+                    if not db.cveExists(cve_id):
+                        continue
+                    repos = db.getCveGithubRepos(cve_id)
+                    if not repos:
+                        continue
+                    matched += 1
+                    # Atribuição ampla: aplica o nome a todos os repos relacionados.
+                    for fullpath in repos:
+                        if db.overrideManifestNpmName(fullpath, npm_name):
+                            overridden += 1
+
+                if scanned % 2000 == 0:
+                    db.conn.commit()
+                    print(f"[INFO] osv-npm: scanned {scanned} GHSA advisories "
+                          f"({matched} CVE matches, {overridden} repo names overridden)")
+
+        db.conn.commit()
+        dest.unlink(missing_ok=True)
+
+        started = datetime.now(timezone.utc).isoformat()
+        db.updateSource(self.SOURCE_NAME, started, started, "")
+        print(f"[INFO] osv-npm: read {scanned} GHSA advisories "
+              f"({ambiguous} skipped as ambiguous), {matched} CVE matches, "
+              f"{overridden} repository npm names overridden. "
+              f"Run 'npm' next to enrich them.")
+
+
 def main() -> None:
     import argparse
     import os
@@ -3980,7 +4126,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "scan-manifests", "npm", "packagist", "update-fixes", "backfill-scores", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "scan-manifests", "osv-npm", "npm", "packagist", "update-fixes", "backfill-scores", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -3990,12 +4136,13 @@ def main() -> None:
             "'pocs' (enrich exploit fields from PoC-in-GitHub), "
             "'wordpress' (enrich WordPress plugins with install/download metrics), "
             "'scan-manifests' (read package.json/composer.json name from each repo's default branch), "
+            "'osv-npm' (override repo npm names from the OSV npm feed, CVE->package), "
             "'npm' (enrich repos with npm package metadata using the scanned name), "
             "'packagist' (enrich repos with Packagist package metadata using the scanned name), "
             "'update-fixes' (recalculate commits_fix), "
             "'backfill-scores' (recompute CVSS for CVEs missing a valid score), "
             "'manifest' (generate public/db/manifest.json), "
-            "'all' (cves+repos+advisories+pocs+wordpress+scan-manifests+npm+packagist+manifest)"
+            "'all' (cves+repos+advisories+pocs+wordpress+scan-manifests+osv-npm+npm+packagist+manifest)"
         ),
     )
     parser.add_argument(
@@ -4169,6 +4316,13 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         RepoManifestScanner(token=args.github_token).run(db)
+        db.conn.close()
+
+    if args.command in ["osv-npm", "all"]:
+        print("[INFO] Overriding repository npm names from the OSV npm feed (CVE->package)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        OsvNpmPackages().run(db)
         db.conn.close()
 
     if args.command in ["npm", "all"]:
