@@ -830,7 +830,42 @@ class databaseSQLite:
             verified_at TEXT
         )
         """)
+
+        # 7. Cache de manifestos de pacote lidos da branch default de cada repo.
+        # Fonte de verdade do NOME canônico do pacote: o 'name' do package.json
+        # (npm) / composer.json (Packagist) na raiz da branch default. A presença
+        # da linha significa "já varrido em definitivo" (mesmo sem manifesto), para
+        # que o scanner não revisite o repo. Falhas transitórias (rate limit/rede)
+        # NÃO gravam linha, então são re-tentadas no próximo run.
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS repo_manifests (
+            fullpath TEXT PRIMARY KEY,
+            npm_name TEXT,
+            composer_name TEXT,
+            default_branch TEXT,
+            checked_at TEXT,
+            FOREIGN KEY (fullpath) REFERENCES repositories (fullpath) ON DELETE CASCADE
+        )
+        """)
         
+        # Limpeza retroativa: PoCs de exploit não são repositórios. Toda a informação
+        # já vive em cves.list_exploit; removemos a redundância em cve_repositories e os
+        # repos cujo ÚNICO papel era 'poc'. Idempotente (após rodar uma vez, vira no-op).
+        # Ordem importa: primeiro removemos os repos "apenas-poc" (enquanto o vínculo
+        # 'poc' ainda existe para identificá-los), depois removemos os vínculos 'poc'.
+        try:
+            self.cursor.execute("""
+                DELETE FROM repositories
+                WHERE fullpath IN (
+                    SELECT repository_fullpath FROM cve_repositories
+                    GROUP BY repository_fullpath
+                    HAVING SUM(CASE WHEN relation_type != 'poc' THEN 1 ELSE 0 END) = 0
+                )
+            """)
+            self.cursor.execute("DELETE FROM cve_repositories WHERE relation_type = 'poc'")
+        except sqlite3.OperationalError:
+            pass
+
         # --- ÍNDICES PARA BUSCA ULTRA RÁPIDA ---
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_score_val ON cve_scores(score)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_cwe_lookup ON cve_cwes(cwe_id)")
@@ -840,6 +875,8 @@ class databaseSQLite:
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_fullpath ON cve_repositories(repository_fullpath)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_ecosystem ON repositories(ecosystem)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_downloads ON repositories(downloads)")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_npm ON repo_manifests(npm_name)")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_composer ON repo_manifests(composer_name)")
         
         """
         EXEMPLOS DE QUERY CONSULTA:
@@ -1477,6 +1514,80 @@ class databaseSQLite:
         )
         return self.cursor.rowcount > 0
 
+    def getReposNeedingManifestScan(self, limit: int) -> list[str]:
+        """
+        Repos GitHub verificados ainda não varridos (sem linha em repo_manifests).
+        Exclui pseudo-repos do WordPress, que não existem no GitHub. Resumível:
+        repos com falha transitória ficam sem linha e reaparecem no próximo run.
+        """
+        self.cursor.execute(
+            """
+            SELECT r.fullpath FROM repositories r
+            WHERE r.is_exists = 1
+              AND COALESCE(r.ecosystem, 'github') != 'wordpress'
+              AND r.fullpath LIKE '%/%'
+              AND NOT EXISTS (
+                  SELECT 1 FROM repo_manifests m WHERE m.fullpath = r.fullpath
+              )
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [row[0] for row in self.cursor.fetchall() if row[0]]
+
+    def saveRepoManifest(
+        self,
+        fullpath: str,
+        npm_name: str | None,
+        composer_name: str | None,
+        default_branch: str | None,
+    ) -> None:
+        """Grava (definitivamente) o resultado da varredura do manifesto de um repo."""
+        self.cursor.execute(
+            """
+            INSERT OR REPLACE INTO repo_manifests
+                (fullpath, npm_name, composer_name, default_branch, checked_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                fullpath,
+                npm_name,
+                composer_name,
+                default_branch,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+    def resetScannedPackageEnrichment(self, ecosystem: str, missing_name_column: str | None = None) -> int:
+        """
+        Reverte para 'github' (limpando package_url/downloads) os repos JÁ VARRIDOS
+        (presentes em repo_manifests) cujo ecossistema atual é `ecosystem` — removendo
+        falsos-positivos da lógica antiga. Toca apenas repos varridos em definitivo,
+        nunca os ainda pendentes (migração incremental fica segura).
+
+        Se `missing_name_column` for dado ('npm_name'/'composer_name'), limita aos repos
+        cujo nome daquele ecossistema está AUSENTE no cache (definitivamente não são
+        pacotes daquele ecossistema, sem precisar revalidar no registro).
+        """
+        sql = (
+            "UPDATE repositories SET ecosystem = 'github', package_url = NULL, downloads = NULL "
+            "WHERE ecosystem = ? AND fullpath IN (SELECT fullpath FROM repo_manifests"
+        )
+        if missing_name_column in ("npm_name", "composer_name"):
+            sql += f" WHERE {missing_name_column} IS NULL"
+        sql += ")"
+        self.cursor.execute(sql, (ecosystem,))
+        return self.cursor.rowcount
+
+    def resetRepoToGithub(self, fullpath: str, only_if_ecosystem: str) -> bool:
+        """Reverte um único repo para 'github' apenas se o ecossistema atual casar."""
+        self.cursor.execute(
+            "UPDATE repositories SET ecosystem = 'github', package_url = NULL, downloads = NULL "
+            "WHERE fullpath = ? AND ecosystem = ?",
+            (fullpath, only_if_ecosystem),
+        )
+        return self.cursor.rowcount > 0
+
     def cveExists(self, cve_id: str) -> bool:
         self.cursor.execute("SELECT 1 FROM cves WHERE cve_id = ?", (cve_id,))
         return self.cursor.fetchone() is not None
@@ -1530,11 +1641,13 @@ class databaseSQLite:
 
     def enrichExploitUrls(self, cve_id: str, urls: list[str], relation_type: str = "poc") -> bool:
         """
-        Mescla URLs de exploit/PoC no list_exploit de um CVE existente (dedup),
-        seta exists_exploit=1 e registra a relação com o repositório.
+        Mescla URLs de exploit/PoC no list_exploit de um CVE existente (dedup) e
+        seta exists_exploit=1.
 
-        Não busca metadados do repo: marca is_exists=1 para que o passo 'repos'
-        (GraphQL) não reprocesse repositórios vindos apenas de PoCs.
+        PoCs de exploit (relation_type='poc') NÃO são tratados como repositórios:
+        ficam apenas em cves.list_exploit. Para outros papéis (ex.: 'referenced')
+        registramos a relação em cve_repositories marcando is_exists=1 (sem buscar
+        metadados via GraphQL).
         """
         current = self._loadJsonList(cve_id, "list_exploit")
         if current is None:
@@ -1551,8 +1664,11 @@ class databaseSQLite:
                 "UPDATE cves SET exists_exploit = 1, list_exploit = ? WHERE cve_id = ?",
                 (json.dumps(current), cve_id),
             )
-        for url in urls:
-            self.linkRepository(cve_id, self._fullpathFromUrl(url), relation_type, mark_exists=1)
+        # PoCs vivem apenas em cves.list_exploit, não são "repositórios relacionados".
+        # Só registramos a relação/repositório para papéis reais (ex.: referenced).
+        if relation_type != "poc":
+            for url in urls:
+                self.linkRepository(cve_id, self._fullpathFromUrl(url), relation_type, mark_exists=1)
         return added
 
     def mergeCommitUrls(self, cve_id: str, urls: list[str]) -> bool:
@@ -3439,50 +3555,233 @@ class GitHubAdvisory(GitHubArchiveSource):
         return count
 
 
+class RepoManifestScanner:
+    """
+    Descobre o NOME canônico do pacote de cada repositório lendo o manifesto raiz
+    na branch default: package.json -> name (npm), composer.json -> name (Packagist).
+
+    Por que existir: o nome do pacote não pode ser inferido de "quem aponta para o
+    repo" (qualquer pacote pode declarar `repository` de um repo que não é o dele,
+    ex.: sub-pacotes de monorepo com `repository.directory`). A única fonte de
+    verdade é o próprio repositório. O resultado é gravado em repo_manifests, que
+    funciona como cache idempotente: cada repo é varrido UMA vez; repos novos
+    (futuros) entram em runs seguintes; falhas transitórias (rate limit/rede) não
+    são cacheadas e portanto re-tentadas depois.
+
+    Estratégia de busca:
+    - Primário (com token): GraphQL em lote (aliases r0..rN), uma expressão `HEAD:`
+      por arquivo resolve a branch default em uma só chamada.
+    - Fallback (sem token, ou repository=null por rename/privado): raw.githubusercontent
+      em main/master (o raw segue redirect de rename).
+    """
+    SOURCE_NAME = "repo-manifests"
+    GRAPHQL_URL = "https://api.github.com/graphql"
+    RAW_URL = "https://raw.githubusercontent.com/{fullpath}/{branch}/{file}"
+
+    # Lote do GraphQL: 30 repos x 2 blobs pequenos cabe bem no limite de nós/custo.
+    GRAPHQL_BATCH_SIZE = 30
+    RATE_LIMIT_MAX_RETRIES = 3
+    RATE_LIMIT_DEFAULT_DELAY = 60
+    RAW_BRANCHES = ("main", "master")
+
+    def __init__(self, token: str | None = None):
+        self.token = token or os.environ.get("GITHUB_TOKEN")
+
+    @staticmethod
+    def _parseManifestName(blob_text: str | None) -> str | None:
+        """Extrai um 'name' string e não-vazio de um package.json/composer.json."""
+        if not blob_text:
+            return None
+        try:
+            data = json.loads(blob_text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(data, dict):
+            name = data.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        return None
+
+    def _buildQuery(self, batch: list[str]) -> str:
+        """Monta um GraphQL com um alias rN por repo, lendo os dois manifestos."""
+        parts = []
+        for i, fullpath in enumerate(batch):
+            owner, name = fullpath.split("/", 1)
+            parts.append(
+                f'r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{\n'
+                f'  defaultBranchRef {{ name }}\n'
+                f'  pkg: object(expression: "HEAD:package.json") {{ ... on Blob {{ text }} }}\n'
+                f'  cmp: object(expression: "HEAD:composer.json") {{ ... on Blob {{ text }} }}\n'
+                f'}}'
+            )
+        return "query {\n" + "\n".join(parts) + "\n}"
+
+    def _fetchRaw(self, fullpath: str) -> tuple[str | None, str | None, str | None, bool]:
+        """
+        Fallback via raw.githubusercontent. Retorna
+        (npm_name, composer_name, branch, reachable). reachable=True quando o
+        servidor respondeu (200 ou 404) ao menos uma vez — base para gravar
+        resultado definitivo "sem manifesto"; False = só erros transitórios.
+        """
+        reachable = False
+        for branch in self.RAW_BRANCHES:
+            npm_name = composer_name = None
+            got_200 = False
+            for file, setter in (("package.json", "npm"), ("composer.json", "composer")):
+                url = self.RAW_URL.format(fullpath=fullpath, branch=branch, file=file)
+                try:
+                    resp = http_get(url, timeout=20)
+                except REQUEST_EXCEPTION:
+                    continue  # transitório: não marca reachable
+                if resp.status_code == 200:
+                    reachable = True
+                    got_200 = True
+                    name = self._parseManifestName(resp.text)
+                    if setter == "npm":
+                        npm_name = name
+                    else:
+                        composer_name = name
+                elif resp.status_code == 404:
+                    reachable = True  # servidor respondeu; arquivo só não existe nessa branch
+            if got_200:
+                return npm_name, composer_name, branch, True
+        return None, None, None, reachable
+
+    def _fetchBatchGraphQL(self, batch: list[str]):
+        """
+        Busca um lote via GraphQL. Retorna (results, fallback, rate_limited):
+        - results: {fullpath: (npm_name, composer_name, branch)} definitivos
+        - fallback: [fullpath] cujo nó veio null (rename/privado) -> tentar raw
+        - rate_limited: True se esgotou retries de rate limit (parar o run)
+        """
+        headers = _github_api_headers(self.token)
+        headers["Content-Type"] = "application/json"
+        payload = {"query": self._buildQuery(batch)}
+
+        for attempt in range(self.RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                resp = http_post(self.GRAPHQL_URL, headers=headers, json=payload, timeout=60)
+            except REQUEST_EXCEPTION as e:
+                print(f"[WARN] scan-manifests: GraphQL request failed: {e}")
+                return {}, list(batch), False  # transitório: cai no raw
+
+            if resp.status_code == 429:
+                if attempt < self.RATE_LIMIT_MAX_RETRIES:
+                    delay = int(resp.headers.get("Retry-After", self.RATE_LIMIT_DEFAULT_DELAY))
+                    print(f"[WARN] scan-manifests: rate limited (429), waiting {delay}s...")
+                    time.sleep(delay)
+                    continue
+                return {}, [], True
+
+            try:
+                data = resp.json()
+            except ValueError:
+                return {}, list(batch), False
+
+            errors = data.get("errors") or []
+            if errors:
+                msg = errors[0].get("message", "")
+                if "rate limit" in msg.lower() or "secondarily" in msg.lower():
+                    if attempt < self.RATE_LIMIT_MAX_RETRIES:
+                        print(f"[WARN] scan-manifests: GraphQL rate limit, waiting "
+                              f"{self.RATE_LIMIT_DEFAULT_DELAY}s...")
+                        time.sleep(self.RATE_LIMIT_DEFAULT_DELAY)
+                        continue
+                    return {}, [], True
+                # Erros não-fatais (ex.: nó específico) seguem com data parcial abaixo.
+
+            payload_data = data.get("data") or {}
+            results: dict[str, tuple] = {}
+            fallback: list[str] = []
+            for i, fullpath in enumerate(batch):
+                node = payload_data.get(f"r{i}")
+                if not node:
+                    fallback.append(fullpath)  # null: rename/privado/deletado -> raw
+                    continue
+                branch_ref = node.get("defaultBranchRef") or {}
+                branch = branch_ref.get("name")
+                npm_name = self._parseManifestName((node.get("pkg") or {}).get("text"))
+                composer_name = self._parseManifestName((node.get("cmp") or {}).get("text"))
+                results[fullpath] = (npm_name, composer_name, branch)
+            return results, fallback, False
+
+        return {}, [], True
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        # Carrega a lista de pendentes UMA vez e itera em um único passe: garante
+        # terminação (repos com falha transitória não são re-selecionados no mesmo
+        # run; voltam só no próximo, pois continuam fora do cache).
+        pending = db.getReposNeedingManifestScan(limit=10_000_000)
+        if not pending:
+            print("[INFO] scan-manifests: no repositories pending a manifest scan; skipping")
+            return
+        print(f"[INFO] scan-manifests: {len(pending)} repositories to scan "
+              f"({'GraphQL+raw' if self.token else 'raw-only (no token)'})")
+
+        scanned = found_npm = found_composer = 0
+        rate_limited = False
+
+        for start in range(0, len(pending), self.GRAPHQL_BATCH_SIZE):
+            batch = [fp for fp in pending[start:start + self.GRAPHQL_BATCH_SIZE]
+                     if fp.count("/") == 1]
+
+            if self.token:
+                results, fallback, rl = self._fetchBatchGraphQL(batch)
+                if rl:
+                    rate_limited = True
+                    break
+            else:
+                results, fallback = {}, list(batch)
+
+            # Raw para os que vieram null no GraphQL (ou todos, sem token).
+            for fullpath in fallback:
+                npm_name, composer_name, branch, reachable = self._fetchRaw(fullpath)
+                if npm_name or composer_name or reachable:
+                    results[fullpath] = (npm_name, composer_name, branch)
+                # !reachable => só erros transitórios: não grava, re-tenta no próximo run.
+
+            for fullpath, (npm_name, composer_name, branch) in results.items():
+                db.saveRepoManifest(fullpath, npm_name, composer_name, branch)
+                scanned += 1
+                found_npm += bool(npm_name)
+                found_composer += bool(composer_name)
+
+            if scanned and scanned % 300 == 0:
+                db.conn.commit()
+                print(f"[INFO] scan-manifests: {scanned} scanned "
+                      f"({found_npm} npm, {found_composer} composer)")
+
+        db.conn.commit()
+        started = datetime.now(timezone.utc).isoformat()
+        db.updateSource(self.SOURCE_NAME, started, started, str(scanned))
+
+        if rate_limited:
+            print(f"[WARN] scan-manifests: stopped on rate limit after {scanned} repos. "
+                  f"Run again later to continue.")
+        print(f"[INFO] scan-manifests: scanned {scanned} repositories "
+              f"({found_npm} with package.json name, {found_composer} with composer.json name)")
+
+
 class NpmPackages:
     """
-    Enriquece repositórios GitHub já existentes com o pacote npm correspondente.
+    Enriquece repositórios com o pacote npm correspondente usando como NOME a
+    fonte de verdade descoberta por RepoManifestScanner (repo_manifests.npm_name,
+    lido do package.json raiz na branch default).
 
-    Fluxo (cruza referência <-> pacote):
-    1. Baixa data/packages.json de nice-registry/all-the-package-repos
-       (chave = slug do pacote, valor = URL do repositório; pode ou não terminar em .git).
-    2. Inverte o mapa para fullpath GitHub -> [slugs], apenas para repos que já temos.
-    3. Resolve a última branch 'build-*' de nice-registry/download-counts (slug -> downloads)
-       e clona com --depth=1 para ler as contagens só dos slugs que precisamos.
-    4. Para cada repo casado grava ecosystem='npm', package_url (npmjs) e downloads.
+    Fluxo:
+    1. Resolve a última branch 'build-*' de nice-registry/download-counts
+       (slug -> downloads) e clona --depth=1 para ler o mapa de contagens.
+    2. Para cada repo com npm_name no cache, valida que o nome EXISTE no
+       download-counts (prova de publicação no npm) e grava ecosystem='npm',
+       package_url (npmjs/<npm_name>) e downloads.
     """
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
     SOURCE_NAME = "npm-packages"
 
-    # data/packages.json é rastreado via Git LFS (~238MB); o raw.githubusercontent
-    # devolve apenas o ponteiro LFS, então usamos o endpoint media que serve o
-    # conteúdo real do arquivo. Chave = slug do pacote, valor = URL do repo (ou null).
-    PACKAGES_URLS = (
-        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/master/data/packages.json",
-        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/main/data/packages.json",
-    )
     DOWNLOAD_COUNTS_GIT = "https://github.com/nice-registry/download-counts.git"
-
-    @staticmethod
-    def _iterSlugRepo(packages):
-        """Normaliza o packages.json em pares (slug, repoUrl), aceitando dict ou lista."""
-        if isinstance(packages, dict):
-            for slug, repo in packages.items():
-                if isinstance(repo, str):
-                    yield slug, repo
-                elif isinstance(repo, dict):
-                    url = repo.get("repository") or repo.get("url")
-                    if url:
-                        yield slug, url
-        elif isinstance(packages, list):
-            for item in packages:
-                if not isinstance(item, dict):
-                    continue
-                slug = item.get("name") or item.get("slug")
-                repo = item.get("repository") or item.get("repo") or item.get("url")
-                if slug and isinstance(repo, str):
-                    yield slug, repo
 
     def _resolveLatestBuildBranch(self) -> str | None:
         """Última branch 'build-*' via git ls-remote (uma chamada, sem clonar tudo)."""
@@ -3528,47 +3827,20 @@ class NpmPackages:
 
         db.createTable()
 
-        # 1. Repos GitHub já verificados que podem ser pacotes npm.
+        # 1. Nomes npm descobertos do manifesto raiz (fonte de verdade).
         db.cursor.execute(
-            "SELECT fullpath FROM repositories "
-            "WHERE (ecosystem = 'github' OR ecosystem IS NULL) AND is_exists = 1"
+            "SELECT fullpath, npm_name FROM repo_manifests WHERE npm_name IS NOT NULL"
         )
-        our_fullpaths = {row[0] for row in db.cursor.fetchall() if row[0]}
-        if not our_fullpaths:
-            print("[INFO] npm: no verified GitHub repositories to match; skipping")
+        candidates = [(row[0], row[1]) for row in db.cursor.fetchall() if row[0] and row[1]]
+        if not candidates:
+            print("[INFO] npm: no repositories with a package.json name in cache; "
+                  "run 'scan-manifests' first. Skipping")
             return
+        print(f"[INFO] npm: {len(candidates)} repositories have a package.json name to validate")
 
-        # 2. Baixa packages.json (slug -> repo) e inverte só para os repos que temos.
-        dest = self.DATA_DIR / "all-the-package-repos.json"
-        packages = None
-        for url in self.PACKAGES_URLS:
-            try:
-                download_to(url, dest)
-                # Lê direto do arquivo (~238MB) para não manter o texto inteiro e o
-                # objeto parseado em memória ao mesmo tempo.
-                with open(dest, "r", encoding="utf-8") as f:
-                    packages = json.load(f)
-                break
-            except (REQUEST_EXCEPTION, json.JSONDecodeError, OSError) as e:
-                print(f"[WARN] npm: failed to fetch {url}: {e}")
-        if packages is None:
-            print("[WARN] npm: could not load all-the-package-repos; skipping")
-            dest.unlink(missing_ok=True)
-            return
-
-        fullpath_to_slugs: dict[str, list[str]] = {}
-        for slug, repo_url in self._iterSlugRepo(packages):
-            fullpath = db._fullpathFromUrl(repo_url)
-            if fullpath and fullpath in our_fullpaths:
-                fullpath_to_slugs.setdefault(fullpath, []).append(slug)
-        dest.unlink(missing_ok=True)
-
-        if not fullpath_to_slugs:
-            print("[INFO] npm: no GitHub repositories matched an npm package; skipping")
-            return
-        print(f"[INFO] npm: {len(fullpath_to_slugs)} repositories matched an npm package")
-
-        # 3. Contagens de download da última branch build-* (clone shallow temporário).
+        # 2. Contagens de download da última branch build-*. Além de fornecer os
+        #    downloads, a presença do nome no mapa é a prova de que o pacote existe
+        #    de fato no npm (evita gravar package_url para um nome nunca publicado).
         counts: dict = {}
         branch = self._resolveLatestBuildBranch()
         if branch:
@@ -3584,20 +3856,28 @@ class NpmPackages:
                     print(f"[INFO] npm: loaded {len(counts)} download counts from {branch}")
                 except (subprocess.SubprocessError, OSError) as e:
                     print(f"[WARN] npm: failed to clone download-counts@{branch}: {e}")
-        else:
-            print("[WARN] npm: no build-* branch resolved; enriching without download counts")
+        if not counts:
+            print("[WARN] npm: no download-counts available to validate names; skipping")
+            return
 
-        # 4. Enriquecimento: em monorepos (vários pacotes no mesmo repo) usa o de maior
-        #    contagem de downloads como representante.
+        # 3. Reset retroativo: limpa o enriquecimento npm de repos já varridos (o
+        #    download-counts é um snapshot completo, então "ausente" é definitivo). Os
+        #    repos válidos são reconfirmados no loop abaixo; falsos-positivos da lógica
+        #    antiga voltam a 'github'. Repos ainda não varridos não são tocados.
+        reset = db.resetScannedPackageEnrichment("npm")
+        if reset:
+            print(f"[INFO] npm: reset {reset} previously-enriched repos (will reconfirm valid ones)")
+
+        # 4. Enriquecimento: só nomes que existem no download-counts (publicados).
         enriched = 0
-        for fullpath, slugs in fullpath_to_slugs.items():
-            best_slug = max(
-                slugs,
-                key=lambda s: counts.get(s) or counts.get(s.lower()) or 0,
-            )
-            downloads = counts.get(best_slug) or counts.get(best_slug.lower())
+        for fullpath, npm_name in candidates:
+            downloads = counts.get(npm_name)
+            if downloads is None:
+                downloads = counts.get(npm_name.lower())
+            if downloads is None:
+                continue  # nome não está no npm: não enriquece
             downloads = int(downloads) if isinstance(downloads, (int, float)) else None
-            package_url = f"https://www.npmjs.com/package/{best_slug}"
+            package_url = f"https://www.npmjs.com/package/{npm_name}"
             if db.enrichPackage(fullpath, "npm", package_url, downloads):
                 enriched += 1
             if enriched % 500 == 0:
@@ -3611,84 +3891,67 @@ class NpmPackages:
 
 class PackagistPackages:
     """
-    Enriquece repositórios GitHub já existentes com o pacote Packagist correspondente.
+    Enriquece repositórios com o pacote Packagist correspondente usando como NOME a
+    fonte de verdade descoberta por RepoManifestScanner (repo_manifests.composer_name,
+    lido do composer.json raiz na branch default).
 
     Fluxo:
-    1. Baixa o export OSV de Packagist (all.zip) e coleta affected[].package.name únicos.
-    2. Para cada pacote consulta a API do Packagist (.package.repository e
-       .package.downloads.total).
-    3. Cruza o repositório do pacote com os repos que já temos das referências; em um
-       match grava ecosystem='packagist', package_url e downloads.
+    1. Para cada repo com composer_name no cache (que ainda não virou npm), consulta
+       a API do Packagist (packagist.org/packages/<name>.json) para VALIDAR que o
+       pacote existe e obter .package.downloads.total.
+    2. Em um 200, grava ecosystem='packagist', package_url e downloads.
     """
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
     SOURCE_NAME = "packagist"
 
-    OSV_URL = "https://storage.googleapis.com/osv-vulnerabilities/Packagist/all.zip"
     API_URL = "https://packagist.org/packages/{name}.json"
-
-    def _collectPackageNames(self) -> list[str]:
-        zip_path = self.DATA_DIR / "packagist-osv.zip"
-        extract_dir = self.DATA_DIR / "packagist-osv"
-        try:
-            download_to(self.OSV_URL, zip_path)
-            if extract_dir.exists():
-                shutil.rmtree(extract_dir)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(extract_dir)
-        except (REQUEST_EXCEPTION, OSError, zipfile.BadZipFile) as e:
-            print(f"[WARN] packagist: failed to download/extract OSV export: {e}")
-            zip_path.unlink(missing_ok=True)
-            return []
-        finally:
-            zip_path.unlink(missing_ok=True)
-
-        names: set[str] = set()
-        for json_path in extract_dir.glob("**/*.json"):
-            try:
-                data = json.loads(json_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                continue
-            for aff in data.get("affected", []) if isinstance(data, dict) else []:
-                pkg = aff.get("package", {}) if isinstance(aff, dict) else {}
-                name = pkg.get("name")
-                if name and "/" in name:
-                    names.add(name)
-        shutil.rmtree(extract_dir, ignore_errors=True)
-        return sorted(names)
 
     def run(self, db: "databaseSQLite") -> None:
         db.createTable()
 
-        names = self._collectPackageNames()
-        if not names:
-            print("[INFO] packagist: no package names from OSV export; skipping")
-            return
-        print(f"[INFO] packagist: {len(names)} unique Packagist packages from OSV")
-
+        # Nomes Packagist descobertos do composer.json raiz. Exclui repos que já
+        # viraram npm neste pipeline (npm roda antes), evitando sobrescrever.
         db.cursor.execute(
-            "SELECT fullpath FROM repositories "
-            "WHERE (ecosystem = 'github' OR ecosystem IS NULL) AND is_exists = 1"
+            """
+            SELECT m.fullpath, m.composer_name
+            FROM repo_manifests m
+            JOIN repositories r ON r.fullpath = m.fullpath
+            WHERE m.composer_name IS NOT NULL
+              AND COALESCE(r.ecosystem, 'github') != 'npm'
+            """
         )
-        our_fullpaths = {row[0] for row in db.cursor.fetchall() if row[0]}
-        if not our_fullpaths:
-            print("[INFO] packagist: no verified GitHub repositories to match; skipping")
+        candidates = [(row[0], row[1]) for row in db.cursor.fetchall() if row[0] and row[1]]
+
+        # Reset retroativo (sem rede): repos já varridos marcados 'packagist' pela lógica
+        # antiga mas SEM composer.json raiz não são pacotes Packagist -> voltam a 'github'.
+        # (Os que falham a validação na API são revertidos por-repo no 404, abaixo.)
+        reset = db.resetScannedPackageEnrichment("packagist", missing_name_column="composer_name")
+        if reset:
+            print(f"[INFO] packagist: reset {reset} previously-enriched repos without composer.json")
+
+        if not candidates:
+            print("[INFO] packagist: no repositories with a composer.json name in cache; "
+                  "run 'scan-manifests' first. Skipping")
+            db.conn.commit()
             return
+        print(f"[INFO] packagist: {len(candidates)} repositories have a composer.json name to validate")
 
         enriched = 0
-        for i, name in enumerate(names, 1):
+        for i, (fullpath, name) in enumerate(candidates, 1):
             try:
                 resp = http_get(self.API_URL.format(name=name))
-                if resp.status_code != 200:
+                if resp.status_code == 404:
+                    # Nome não existe (mais) no Packagist: definitivo -> reverte se era packagist.
+                    db.resetRepoToGithub(fullpath, "packagist")
                     continue
+                if resp.status_code != 200:
+                    continue  # transitório (5xx/429): não mexe
                 pkg = resp.json().get("package", {})
             except (REQUEST_EXCEPTION, ValueError) as e:
                 print(f"[WARN] packagist: failed to fetch {name}: {e}")
                 continue
 
-            fullpath = db._fullpathFromUrl(pkg.get("repository") or "")
-            if not fullpath or fullpath not in our_fullpaths:
-                continue
             total = (pkg.get("downloads") or {}).get("total")
             total = int(total) if isinstance(total, (int, float)) else None
             package_url = f"https://packagist.org/packages/{name}"
@@ -3697,12 +3960,12 @@ class PackagistPackages:
 
             if i % 200 == 0:
                 db.conn.commit()
-                print(f"[INFO] packagist: processed {i}/{len(names)} packages ({enriched} enriched)")
+                print(f"[INFO] packagist: processed {i}/{len(candidates)} packages ({enriched} enriched)")
             time.sleep(0.05)  # educado com a API pública do Packagist
         db.conn.commit()
 
         started = datetime.now(timezone.utc).isoformat()
-        db.updateSource(self.SOURCE_NAME, started, started, str(len(names)))
+        db.updateSource(self.SOURCE_NAME, started, started, str(len(candidates)))
         print(f"[INFO] packagist: enriched {enriched} repositories with Packagist metadata")
 
 
@@ -3715,7 +3978,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "npm", "packagist", "update-fixes", "backfill-scores", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "scan-manifests", "npm", "packagist", "update-fixes", "backfill-scores", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -3724,12 +3987,13 @@ def main() -> None:
             "'advisories' (enrich CVEs from GitHub Advisory Database), "
             "'pocs' (enrich exploit fields from PoC-in-GitHub), "
             "'wordpress' (enrich WordPress plugins with install/download metrics), "
-            "'npm' (enrich repos with npm package metadata from nice-registry), "
-            "'packagist' (enrich repos with Packagist package metadata), "
+            "'scan-manifests' (read package.json/composer.json name from each repo's default branch), "
+            "'npm' (enrich repos with npm package metadata using the scanned name), "
+            "'packagist' (enrich repos with Packagist package metadata using the scanned name), "
             "'update-fixes' (recalculate commits_fix), "
             "'backfill-scores' (recompute CVSS for CVEs missing a valid score), "
             "'manifest' (generate public/db/manifest.json), "
-            "'all' (cves+repos+advisories+pocs+wordpress+npm+packagist+manifest)"
+            "'all' (cves+repos+advisories+pocs+wordpress+scan-manifests+npm+packagist+manifest)"
         ),
     )
     parser.add_argument(
@@ -3896,6 +4160,13 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         WordPressMetadata().run(db)
+        db.conn.close()
+
+    if args.command in ["scan-manifests", "all"]:
+        print("[INFO] Scanning repositories' default-branch manifests (package.json/composer.json)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        RepoManifestScanner(token=args.github_token).run(db)
         db.conn.close()
 
     if args.command in ["npm", "all"]:
