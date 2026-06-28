@@ -449,6 +449,8 @@ export function FiltersPanel({
                 <SelectItem value='all'>{t('ecosystemAll')}</SelectItem>
                 <SelectItem value='github'>GitHub</SelectItem>
                 <SelectItem value='wordpress'>WordPress</SelectItem>
+                <SelectItem value='npm'>npm</SelectItem>
+                <SelectItem value='packagist'>Packagist</SelectItem>
               </SelectContent>
             </Select>
           </div>
