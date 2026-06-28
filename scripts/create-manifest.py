@@ -3817,6 +3817,76 @@ class NpmPackages:
 
     DOWNLOAD_COUNTS_GIT = "https://github.com/nice-registry/download-counts.git"
 
+    # Mapa autoritativo pacote -> repositório (nice-registry/all-the-package-repos).
+    # data/packages.json é rastreado via Git LFS (~227MB); o raw.githubusercontent
+    # devolve só o ponteiro LFS, então usamos o endpoint media, que serve o JSON real.
+    # Usado apenas para VALIDAR (rejeitar) atribuições nome->repo erradas, nunca para
+    # escolher o nome — isso evita o mis-tag de monorepo da lógica antiga.
+    PACKAGES_URLS = (
+        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/master/data/packages.json",
+        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/main/data/packages.json",
+    )
+
+    @staticmethod
+    def _iterSlugRepo(packages):
+        """Normaliza o packages.json em pares (slug, repo_url), aceitando dict ou lista."""
+        if isinstance(packages, dict):
+            for slug, repo in packages.items():
+                if isinstance(repo, str):
+                    yield slug, repo
+                elif isinstance(repo, dict):
+                    url = repo.get("repository") or repo.get("url")
+                    if url:
+                        yield slug, url
+        elif isinstance(packages, list):
+            for item in packages:
+                if not isinstance(item, dict):
+                    continue
+                slug = item.get("name") or item.get("slug")
+                repo = item.get("repository") or item.get("repo") or item.get("url")
+                if slug and isinstance(repo, str):
+                    yield slug, repo
+
+    @staticmethod
+    def _pkgNameFromUrl(package_url: str | None) -> str | None:
+        """Extrai o slug npm de um package_url (preserva escopo @org/pkg)."""
+        if not package_url or "/package/" not in package_url:
+            return None
+        name = package_url.rsplit("/package/", 1)[-1].strip()
+        return name or None
+
+    def _loadKnownRepoMap(self, db: "databaseSQLite", needed_names: set[str]) -> dict | None:
+        """
+        Baixa o all-the-package-repos e devolve {slug -> fullpath GitHub} restrito a
+        `needed_names` (descarta o dict gigante após filtrar, mantendo a memória baixa).
+        Retorna None se não conseguir carregar — chamador segue sem o guard.
+        """
+        if not needed_names:
+            return {}
+        dest = self.DATA_DIR / "all-the-package-repos.json"
+        packages = None
+        for url in self.PACKAGES_URLS:
+            try:
+                download_to(url, dest)
+                with open(dest, "r", encoding="utf-8") as f:
+                    packages = json.load(f)
+                break
+            except (REQUEST_EXCEPTION, json.JSONDecodeError, OSError, ValueError) as e:
+                print(f"[WARN] npm: failed to fetch {url}: {e}")
+        dest.unlink(missing_ok=True)
+        if packages is None:
+            return None
+
+        known_repo: dict[str, str] = {}
+        for slug, repo_url in self._iterSlugRepo(packages):
+            if slug not in needed_names:
+                continue
+            fullpath = db._fullpathFromUrl(repo_url)
+            if fullpath:
+                known_repo[slug] = fullpath
+        del packages
+        return known_repo
+
     def _resolveLatestBuildBranch(self) -> str | None:
         """Última branch 'build-*' via git ls-remote (uma chamada, sem clonar tudo)."""
         import subprocess
@@ -3898,16 +3968,61 @@ class NpmPackages:
             print("[WARN] npm: no download-counts available to validate names; skipping")
             return
 
-        # 3. Reset retroativo: limpa o enriquecimento npm de repos já varridos. Os
+        # 3. Mapa autoritativo pacote -> repositório (all-the-package-repos), restrito
+        #    aos nomes que precisamos checar: os candidates + os que já estão como npm
+        #    (para o scrub retroativo). Serve só para REJEITAR atribuições erradas.
+        # (fullpath, name) dos repos atualmente npm, para o scrub. O nome vem do
+        # repo_manifests.npm_name quando existe; senão é extraído do package_url
+        # (cobre tags obsoletas em repos fora do cache de manifestos).
+        existing_npm = [
+            (row[0], row[2] or self._pkgNameFromUrl(row[1]))
+            for row in db.cursor.execute(
+                "SELECT r.fullpath, r.package_url, m.npm_name "
+                "FROM repositories r LEFT JOIN repo_manifests m ON m.fullpath = r.fullpath "
+                "WHERE r.ecosystem = 'npm'"
+            ).fetchall()
+        ]
+        needed_names = {npm_name for _, npm_name in candidates}
+        needed_names.update(name for _, name in existing_npm if name)
+        known_repo = self._loadKnownRepoMap(db, needed_names)
+        if known_repo is None:
+            print("[WARN] npm: could not load all-the-package-repos; proceeding WITHOUT "
+                  "the package->repo guard this run")
+        else:
+            print(f"[INFO] npm: package->repo guard loaded ({len(known_repo)} known repos)")
+
+        # 4. Reset retroativo: limpa o enriquecimento npm de repos já varridos. Os
         #    repos válidos são reconfirmados no loop abaixo; falsos-positivos da lógica
         #    antiga voltam a 'github'. Repos ainda não varridos não são tocados.
         reset = db.resetScannedPackageEnrichment("npm")
         if reset:
             print(f"[INFO] npm: reset {reset} previously-enriched repos (will reconfirm valid ones)")
 
-        # 4. Enriquecimento: só nomes presentes no download-counts (publicados no npm).
-        enriched = 0
+        # 5. Scrub retroativo: repos ainda marcados npm cujo pacote pertence, segundo o
+        #    all-the-package-repos, a OUTRO repositório (ex.: grafana/grafana-image-renderer
+        #    com 'minimatch', que é de isaacs/minimatch) voltam a 'github'. Pega também os
+        #    obsoletos fora de repo_manifests, que o reset acima não toca.
+        scrubbed = 0
+        if known_repo:
+            for fullpath, name in existing_npm:
+                if not name:
+                    continue
+                owner = known_repo.get(name)
+                if owner and owner != fullpath and db.resetRepoToGithub(fullpath, "npm"):
+                    scrubbed += 1
+            if scrubbed:
+                db.conn.commit()
+                print(f"[INFO] npm: scrubbed {scrubbed} repos mis-tagged with another repo's package")
+
+        # 6. Enriquecimento: só nomes presentes no download-counts (publicados no npm) e
+        #    cujo repositório conhecido (se houver) seja este mesmo repo.
+        enriched = rejected = 0
         for fullpath, npm_name in candidates:
+            if known_repo:
+                owner = known_repo.get(npm_name)
+                if owner and owner != fullpath:
+                    rejected += 1
+                    continue  # pacote pertence a outro repositório: não é deste repo
             downloads = counts.get(npm_name)
             if downloads is None:
                 downloads = counts.get(npm_name.lower())
@@ -3923,7 +4038,8 @@ class NpmPackages:
 
         started = datetime.now(timezone.utc).isoformat()
         db.updateSource(self.SOURCE_NAME, started, started, branch or "", base_release_file=branch or "")
-        print(f"[INFO] npm: enriched {enriched} repositories with npm package metadata")
+        print(f"[INFO] npm: enriched {enriched} repositories with npm package metadata "
+              f"({rejected} rejected by package->repo guard, {scrubbed} scrubbed retroactively)")
 
 
 class PackagistPackages:
