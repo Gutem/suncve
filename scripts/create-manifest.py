@@ -3777,9 +3777,9 @@ class NpmPackages:
 
     # Registro do npm: fonte autoritativa do repositório de cada pacote (campo
     # .repository). Usado só para VALIDAR (rejeitar) atribuições nome->repo erradas,
-    # nunca para escolher o nome. Substitui o all-the-package-repos (arquivo LFS de
-    # ~227MB cujo download falhava no CI e desligava o guard em silêncio); o registry
-    # é a MESMA origem daquele dataset, é confiável e o resultado fica em cache.
+    # nunca para escolher o nome. Consulta pequena por pacote, com retry e cache
+    # persistente (npm_repo_cache) — sem download massivo que possa falhar e desligar
+    # o guard em silêncio.
     REGISTRY_URL = "https://registry.npmjs.org/{name}/latest"
 
     @staticmethod
