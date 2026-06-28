@@ -251,15 +251,12 @@
       "totalRepos": "Total Repositories",
       "withCVEs": "With CVEs",
       "withCommitFix": "With Commit Fix",
-      "topLanguage": "Top Language",
       "repositories": "Repositories",
       "inDatabase": "In the vulnerability database",
       "linkedCVEs": "With linked CVEs",
       "vulnerableRepos": "Repositories with vulnerabilities",
       "patchCommits": "Patch commits",
-      "withFixes": "Repositories with fix commits",
-      "noData": "No data",
-      "mostUsed": "Most used language"
+      "withFixes": "Repositories with fix commits"
     },
     "filters": {
       "title": "Filters",

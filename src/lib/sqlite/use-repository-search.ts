@@ -22,7 +22,6 @@ interface QueryCache {
     totalRepos: number;
     withCVEs: number;
     withCommitFix: number;
-    topLanguages: { language: string; count: number }[];
   } | null;
 }
 
@@ -410,8 +409,7 @@ export function useRepositorySearch() {
       return {
         totalRepos: 0,
         withCVEs: 0,
-        withCommitFix: 0,
-        topLanguages: []
+        withCommitFix: 0
       };
     }
 
@@ -426,27 +424,16 @@ export function useRepositorySearch() {
       withCVEs: number;
       withCommitFix: number;
     }>(`
-      SELECT 
+      SELECT
         (SELECT COUNT(*) FROM repositories) as totalRepos,
         (SELECT COUNT(DISTINCT repository_fullpath) FROM cve_repositories) as withCVEs,
         (SELECT COUNT(*) FROM repositories WHERE commits_fix_count > 0) as withCommitFix
     `)[0];
 
-    // Get top languages
-    const topLanguages = executeQuery<{ language: string; count: number }>(`
-      SELECT languageMain as language, COUNT(*) as count 
-      FROM repositories 
-      WHERE languageMain IS NOT NULL AND languageMain != ''
-      GROUP BY languageMain 
-      ORDER BY count DESC
-      LIMIT 5
-    `);
-
     const result = {
       totalRepos: stats?.totalRepos ?? 0,
       withCVEs: stats?.withCVEs ?? 0,
-      withCommitFix: stats?.withCommitFix ?? 0,
-      topLanguages
+      withCommitFix: stats?.withCommitFix ?? 0
     };
 
     // Cache the results
@@ -461,8 +448,7 @@ export function useRepositorySearch() {
         return {
           totalRepos: 0,
           withCVEs: 0,
-          withCommitFix: 0,
-          topLanguages: []
+          withCommitFix: 0
         };
       }
 
@@ -494,8 +480,7 @@ export function useRepositorySearch() {
       return {
         totalRepos: stats?.totalRepos ?? 0,
         withCVEs: stats?.withCVEs ?? 0,
-        withCommitFix: stats?.withCommitFix ?? 0,
-        topLanguages: [] // Not computed for filtered stats for performance
+        withCommitFix: stats?.withCommitFix ?? 0
       };
     },
     [isReady, executeQuery, buildWhereClause]

@@ -71,8 +71,7 @@ function RepositorySearchPageContentInner() {
     totalRepos: number;
     withCVEs: number;
     withCommitFix: number;
-    topLanguages: { language: string; count: number }[];
-  }>({ totalRepos: 0, withCVEs: 0, withCommitFix: 0, topLanguages: [] });
+  }>({ totalRepos: 0, withCVEs: 0, withCommitFix: 0 });
 
   // Keep the sort field meaningful per ecosystem: package ecosystems
   // (WordPress/npm/Packagist) are ranked by downloads, while stars is the sensible
