@@ -3238,8 +3238,10 @@ class findExploits:
 
 class GitHubArchiveSource:
     """
-    Base para fontes complementares que clonam um repositório GitHub (zip do
-    branch) e enriquecem CVEs já existentes no banco — nunca criam CVEs novas.
+    Base para fontes que clonam um repositório GitHub (zip do branch) e, por
+    padrão, enriquecem CVEs já existentes no banco. Subclasses podem optar por
+    criar CVEs novas (ex.: GitHubAdvisory semeia CVEs publicadas no GitHub
+    Advisory antes do cvelist); PoCInGitHub permanece somente enriquecimento.
 
     Estado é rastreado na tabela `sources` guardando o commit SHA processado em
     `last_release_file`. Na primeira execução faz scan completo (download do zip);
@@ -3479,8 +3481,14 @@ class PoCInGitHub(GitHubArchiveSource):
 class GitHubAdvisory(GitHubArchiveSource):
     """
     Fonte GitHub Advisory Database (github/advisory-database, formato OSV).
-    Enriquece CVEs existentes (casados via aliases) com referências, scores CVSS
-    e pacotes afetados. Advisories sem CVE são ignorados.
+
+    Casa advisories a CVEs via `aliases`. Para CVEs que JÁ existem, enriquece com
+    referências, scores CVSS, CWEs e pacotes afetados. Para CVEs que AINDA NÃO
+    existem no banco (publicadas no GitHub Advisory antes do cvelist/NVD), CRIA a
+    CVE via insertCVE — o GitHub Advisory passa a ser fonte de CVEs novas. Quando
+    o cvelist publicar a mesma CVE depois, o INSERT OR REPLACE de insertCVE
+    sobrescreve com os dados autoritativos. Advisories sem CVE são ignorados;
+    advisories `withdrawn` não semeiam CVE nova (mas enriquecem se já existir).
 
     Layout: advisories/github-reviewed/YEAR/MONTH/GHSA-xxxx/GHSA-xxxx.json
     """
@@ -3516,6 +3524,27 @@ class GitHubAdvisory(GitHubArchiveSource):
         if vector.startswith("CVSS:3"):
             return "3.1"
         return "2.0"
+
+    @staticmethod
+    def _buildCveData(cve_id, data, refs, cvss_list, affected, cwe_ids) -> dict:
+        """
+        Monta o dict no mesmo formato de formatDataVersion5_2 (consumido por
+        insertCVE) a partir do advisory OSV, reaproveitando os campos que
+        _processFile já extraiu. Usado para CRIAR uma CVE ausente a partir do GHSA.
+        """
+        return {
+            "cve_id": cve_id,
+            "state": "PUBLISHED",
+            "reserved": None,
+            "published": data.get("published"),
+            "updated": data.get("modified"),
+            "title": data.get("summary") or "No Title Found",
+            "description": data.get("details"),
+            "affected": affected,
+            "cwe_ids": cwe_ids,
+            "references": refs,
+            "cvss": cvss_list,
+        }
 
     def _processFile(self, db, data, rel_path) -> int:
         if not isinstance(data, dict):
@@ -3571,7 +3600,14 @@ class GitHubAdvisory(GitHubArchiveSource):
         for cve_id in cve_ids:
             cve_id = cve_id.upper()
             if not db.cveExists(cve_id):
-                continue
+                # Advisory retirado não semeia CVE nova (só enriquece se já existir).
+                if data.get("withdrawn"):
+                    continue
+                # GHSA como fonte de CVEs: cria a CVE ausente. O bloco de
+                # enriquecimento abaixo roda em seguida e é idempotente (dedup),
+                # virando no-op para os dados que insertCVE já gravou e mantendo
+                # apenas os extras do GHSA (repos 'package' e PoC do advisory).
+                db.insertCVE(self._buildCveData(cve_id, data, refs, cvss_list, affected, cwe_ids))
             # mergeReferences primeiro: vincula repos de commit como fix_commit,
             # prevalecendo sobre o link "package" (INSERT OR IGNORE na PK).
             if refs:
