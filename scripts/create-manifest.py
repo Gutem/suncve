@@ -3330,22 +3330,27 @@ class GitHubArchiveSource:
             print(f"[WARN] Failed to fetch {rel_path}: {e}")
             return None
 
-    def run(self, db: "databaseSQLite") -> None:
+    def run(self, db: "databaseSQLite", force_full: bool = False) -> None:
         info = db.getSourceInfo(self.SOURCE_NAME)
         prior_sha = info.get("last_release_file") if info else None
         head_sha = github_branch_head_sha(self.REPO, self.BRANCH)
         if not head_sha:
             print(f"[WARN] {self.SOURCE_NAME}: could not resolve HEAD sha; skipping")
             return
-        if prior_sha == head_sha:
+        # force_full (backfill): ignora prior_sha e reprocessa todos os arquivos via
+        # scan completo, para aplicar retroativamente lógica nova de _processFile
+        # (ex.: criar CVEs ausentes a partir do advisory) ao histórico já varrido.
+        if force_full:
+            print(f"[INFO] {self.SOURCE_NAME}: forced full re-scan (backfill)")
+        if not force_full and prior_sha == head_sha:
             print(f"[INFO] {self.SOURCE_NAME}: already up to date ({head_sha[:8]})")
             return
 
         started = datetime.now(timezone.utc).isoformat()
         processed = 0
 
-        # Caminho incremental
-        if prior_sha:
+        # Caminho incremental (pulado quando force_full)
+        if prior_sha and not force_full:
             changed = github_compare_files(self.REPO, prior_sha, head_sha)
             if changed is not None:
                 relevant = [p for p in changed if p and self._isRelevantPath(p)]
@@ -4417,7 +4422,12 @@ def main() -> None:
         action="store_true",
         help="Generate .gz from base sqlite file if missing"
     )
-    
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Force a full re-scan for the advisories command (backfill: create advisory-only CVEs missing from the DB instead of incremental)"
+    )
+
     args = parser.parse_args()
     if args.batch_size <= 0:
         raise SystemExit("[ERROR] --batch-size must be greater than zero")
@@ -4475,7 +4485,7 @@ def main() -> None:
         print("[INFO] Enriching CVEs from GitHub Advisory Database (github/advisory-database)...")
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
-        GitHubAdvisory().run(db)
+        GitHubAdvisory().run(db, force_full=args.full)
         db.conn.close()
 
     if args.command in ["pocs", "all"]:
