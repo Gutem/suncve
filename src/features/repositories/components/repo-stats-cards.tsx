@@ -5,7 +5,6 @@ import {
   IconBrandGithub,
   IconBug,
   IconGitCommit,
-  IconCode,
   IconTrendingUp
 } from '@tabler/icons-react';
 import {
@@ -23,7 +22,6 @@ interface RepoStatsCardsProps {
     totalRepos: number;
     withCVEs: number;
     withCommitFix: number;
-    topLanguages: { language: string; count: number }[];
   };
 }
 
@@ -41,7 +39,7 @@ export function RepoStatsCards({ stats }: RepoStatsCardsProps) {
       : '0';
 
   return (
-    <div className='*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-2 gap-3 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs sm:gap-4 lg:grid-cols-4'>
+    <div className='*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-2 gap-3 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs sm:gap-4 lg:grid-cols-3'>
       <Card className='@container/card'>
         <CardHeader className='p-4 pb-2 sm:p-6 sm:pb-2'>
           <CardDescription className='text-xs sm:text-sm'>
@@ -119,32 +117,6 @@ export function RepoStatsCards({ stats }: RepoStatsCardsProps) {
           </div>
           <div className='text-muted-foreground hidden sm:block'>
             {t('withFixes')}
-          </div>
-        </CardFooter>
-      </Card>
-
-      <Card className='@container/card'>
-        <CardHeader className='p-4 pb-2 sm:p-6 sm:pb-2'>
-          <CardDescription className='text-xs sm:text-sm'>
-            {t('topLanguage')}
-          </CardDescription>
-          <CardTitle className='text-xl font-semibold tabular-nums sm:text-2xl @[250px]/card:text-3xl'>
-            {stats.topLanguages[0]?.language || '—'}
-          </CardTitle>
-          <CardAction>
-            <div className='rounded-full bg-blue-500/10 p-1.5 sm:p-2'>
-              <IconCode className='h-4 w-4 text-blue-500 sm:h-5 sm:w-5' />
-            </div>
-          </CardAction>
-        </CardHeader>
-        <CardFooter className='flex-col items-start gap-1 p-4 pt-0 text-xs sm:gap-1.5 sm:p-6 sm:pt-0 sm:text-sm'>
-          <div className='line-clamp-1 flex gap-2 font-medium'>
-            {stats.topLanguages[0]
-              ? `${stats.topLanguages[0].count.toLocaleString()} repos`
-              : t('noData')}
-          </div>
-          <div className='text-muted-foreground hidden sm:block'>
-            {t('mostUsed')}
           </div>
         </CardFooter>
       </Card>

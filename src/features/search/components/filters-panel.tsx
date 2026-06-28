@@ -141,15 +141,12 @@ export function FiltersPanel({
     [filters, onFiltersChange]
   );
 
-  const handlePopularityChange = useCallback(
-    (
-      key: 'popStarsMin' | 'popInstallsMin' | 'popDownloadsMin',
-      raw: string
-    ) => {
-      const value = raw.trim() === '' ? null : Number(raw);
+  const handleDownloadsChange = useCallback(
+    (value: number[]) => {
       onFiltersChange({
         ...filters,
-        [key]: value !== null && !Number.isNaN(value) ? value : null
+        popDownloadsMin: value[0] > 0 ? sliderToDl(value[0]) : null,
+        popDownloadsMax: value[1] < DL_STEPS ? sliderToDl(value[1]) : null
       });
     },
     [filters, onFiltersChange]
@@ -449,60 +446,37 @@ export function FiltersPanel({
                 <SelectItem value='all'>{t('ecosystemAll')}</SelectItem>
                 <SelectItem value='github'>GitHub</SelectItem>
                 <SelectItem value='wordpress'>WordPress</SelectItem>
+                <SelectItem value='npm'>npm</SelectItem>
+                <SelectItem value='packagist'>Packagist</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {/* Popularity Filter (stars OR active installs OR downloads) */}
+          {/* Downloads Range */}
           <div className='space-y-3'>
-            <Label>{t('popularity')}</Label>
-            <div className='grid grid-cols-3 gap-2'>
-              <div className='space-y-1'>
-                <span className='text-muted-foreground text-xs'>
-                  {t('popStars')}
-                </span>
-                <Input
-                  type='number'
-                  min={0}
-                  placeholder='1000'
-                  value={filters.popStarsMin ?? ''}
-                  onChange={(e) =>
-                    handlePopularityChange('popStarsMin', e.target.value)
-                  }
-                />
-              </div>
-              <div className='space-y-1'>
-                <span className='text-muted-foreground text-xs'>
-                  {t('popInstalls')}
-                </span>
-                <Input
-                  type='number'
-                  min={0}
-                  placeholder='1000'
-                  value={filters.popInstallsMin ?? ''}
-                  onChange={(e) =>
-                    handlePopularityChange('popInstallsMin', e.target.value)
-                  }
-                />
-              </div>
-              <div className='space-y-1'>
-                <span className='text-muted-foreground text-xs'>
-                  {t('popDownloads')}
-                </span>
-                <Input
-                  type='number'
-                  min={0}
-                  placeholder='10000'
-                  value={filters.popDownloadsMin ?? ''}
-                  onChange={(e) =>
-                    handlePopularityChange('popDownloadsMin', e.target.value)
-                  }
-                />
-              </div>
+            <Label>{t('popDownloads')}</Label>
+            <Slider
+              min={0}
+              max={DL_STEPS}
+              step={1}
+              value={[
+                filters.popDownloadsMin != null
+                  ? dlToSlider(filters.popDownloadsMin)
+                  : 0,
+                filters.popDownloadsMax != null
+                  ? dlToSlider(filters.popDownloadsMax)
+                  : DL_STEPS
+              ]}
+              onValueChange={handleDownloadsChange}
+            />
+            <div className='text-muted-foreground flex justify-between text-sm'>
+              <span>{formatCompact(filters.popDownloadsMin ?? 0)}</span>
+              <span>
+                {filters.popDownloadsMax != null
+                  ? formatCompact(filters.popDownloadsMax)
+                  : `${formatCompact(DOWNLOADS_MAX)}+`}
+              </span>
             </div>
-            <p className='text-muted-foreground text-xs'>
-              {t('popularityHint')}
-            </p>
           </div>
 
           {/* Language Filter */}
@@ -701,11 +675,20 @@ function countActiveFilters(filters: SearchFilters): number {
   if (filters.datePeriod !== 'all') count++;
   if (filters.repository) count++;
   if (filters.ecosystem) count++;
-  if (
-    filters.popStarsMin !== null ||
-    filters.popInstallsMin !== null ||
-    filters.popDownloadsMin !== null
-  )
+  if (filters.popDownloadsMin !== null || filters.popDownloadsMax !== null)
     count++;
   return count;
 }
+
+// Downloads slider helpers — log scale so the 0–1B range stays usable for small values.
+const DOWNLOADS_MAX = 1_000_000_000;
+const DL_STEPS = 1000; // slider resolution (0..DL_STEPS)
+const sliderToDl = (p: number) =>
+  Math.round(Math.pow(DOWNLOADS_MAX + 1, p / DL_STEPS) - 1);
+const dlToSlider = (n: number) =>
+  Math.round((Math.log10(n + 1) / Math.log10(DOWNLOADS_MAX + 1)) * DL_STEPS);
+const formatCompact = (n: number) =>
+  new Intl.NumberFormat('en', {
+    notation: 'compact',
+    maximumFractionDigits: 1
+  }).format(n);

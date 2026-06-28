@@ -127,10 +127,9 @@ export interface SearchFilters {
   repository: string | null; // Filter by specific repository fullpath
   cweCategory: string | null; // Filter by CWE category (e.g., 'rce', 'injection')
   ecosystem: string | null; // Filter by linked repository ecosystem ('github' | 'wordpress' | 'npm' | 'packagist')
-  // Popularity: CVE in a repo matching ANY of the set thresholds (combined with OR)
-  popStarsMin: number | null; // GitHub stars
-  popInstallsMin: number | null; // WordPress active installs
-  popDownloadsMin: number | null; // WordPress downloads
+  // Downloads range: CVE in a repo whose unified downloads fall within [min, max]
+  popDownloadsMin: number | null; // min downloads (npm/Packagist/WordPress)
+  popDownloadsMax: number | null; // max downloads (null = no upper bound)
 }
 
 export const defaultFilters: SearchFilters = {
@@ -152,9 +151,8 @@ export const defaultFilters: SearchFilters = {
   repository: null,
   cweCategory: null,
   ecosystem: null,
-  popStarsMin: null,
-  popInstallsMin: null,
-  popDownloadsMin: null
+  popDownloadsMin: null,
+  popDownloadsMax: null
 };
 
 export type SortField =
