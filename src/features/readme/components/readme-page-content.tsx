@@ -186,7 +186,7 @@ export default function ReadmePageContent() {
     {
       title: t('sources.npmTitle'),
       text: t('sources.npmText'),
-      url: 'https://github.com/nice-registry/all-the-package-repos',
+      url: 'https://github.com/nice-registry/download-counts',
       color: 'text-rose-500',
       bg: 'bg-rose-500/10'
     },

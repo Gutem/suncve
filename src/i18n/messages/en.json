@@ -380,7 +380,7 @@
       "wordpressTitle": "WordPress plugins database",
       "wordpressText": "rix4uni/wordpress-plugins dataset from the official WordPress directory, with active installs, downloads and last updated date.",
       "npmTitle": "npm packages",
-      "npmText": "nice-registry/all-the-package-repos maps each npm package to its repository, cross-referenced with download counts from nice-registry/download-counts to enrich GitHub repos with package URL and downloads.",
+      "npmText": "Download counts from nice-registry/download-counts measure each package's popularity, and the npm registry resolves every package to its canonical repository, enriching GitHub repos with package URL and downloads.",
       "packagistTitle": "Packagist packages",
       "packagistText": "OSV Packagist export plus the Packagist API resolve each affected Composer package to its repository and total downloads, matched against the repositories from our references.",
       "visit": "Visit repository"

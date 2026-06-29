@@ -847,7 +847,21 @@ class databaseSQLite:
             FOREIGN KEY (fullpath) REFERENCES repositories (fullpath) ON DELETE CASCADE
         )
         """)
-        
+
+        # Cache do repositório CANÔNICO de cada pacote npm, resolvido no registry
+        # (registry.npmjs.org/<nome>/latest -> .repository). Fonte de verdade para o
+        # guard "esse pacote é mesmo deste repo?". fullpath NULL = verificado e sem
+        # repo GitHub conhecido (não rejeita); linha ausente = ainda não verificado.
+        # Persiste entre snapshots (restaurados incrementalmente), tornando a
+        # verificação barata depois da primeira passada.
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS npm_repo_cache (
+            name TEXT PRIMARY KEY,
+            fullpath TEXT,
+            checked_at TEXT
+        )
+        """)
+
         # Limpeza retroativa: PoCs de exploit não são repositórios. Toda a informação
         # já vive em cves.list_exploit; removemos a redundância em cve_repositories e os
         # repos cujo ÚNICO papel era 'poc'. Idempotente (após rodar uma vez, vira no-op).
@@ -1276,6 +1290,28 @@ class databaseSQLite:
         INSERT OR REPLACE INTO url_cache (url, has_exploit, verified_at)
         VALUES (?, ?, ?)
         """, (url, has_exploit, datetime.now(timezone.utc).isoformat()))
+
+    def getNpmRepoFromCache(self, name: str) -> tuple[bool, str | None]:
+        """
+        Repositório canônico de um pacote npm no cache.
+
+        Returns:
+            (cached, fullpath): cached=False quando não há linha (ainda não
+            verificado); cached=True com fullpath podendo ser None ("verificado,
+            sem repo GitHub conhecido").
+        """
+        self.cursor.execute("SELECT fullpath FROM npm_repo_cache WHERE name = ?", (name,))
+        row = self.cursor.fetchone()
+        if row is None:
+            return False, None
+        return True, row[0]
+
+    def setNpmRepoCache(self, name: str, fullpath: str | None) -> None:
+        """Grava o repositório canônico (ou None) de um pacote npm no cache."""
+        self.cursor.execute("""
+        INSERT OR REPLACE INTO npm_repo_cache (name, fullpath, checked_at)
+        VALUES (?, ?, ?)
+        """, (name, fullpath, datetime.now(timezone.utc).isoformat()))
 
     def complementCVE(self, dataReferences: list, persist_repositories: bool = True) -> dict:
         """
@@ -1782,34 +1818,6 @@ class databaseSQLite:
             self.cursor.execute(
                 "INSERT OR IGNORE INTO cve_affected (cve_id, vendor, product) VALUES (?, ?, ?)",
                 (cve_id, aff.get("vendor"), aff.get("product")),
-            )
-
-    def getCveIdsWithoutValidScore(self) -> set[str]:
-        """
-        Retorna os cve_ids que existem em `cves` mas não possuem nenhum score
-        CVSS válido (sem linha em cve_scores, ou apenas linhas com score 0/NULL).
-
-        Usado pelo backfill de scores: alvo são justamente os CVEs afetados pelo
-        bug em que o vetor CVSS morava no container ADP e era ignorado.
-        """
-        self.cursor.execute(
-            """
-            SELECT c.cve_id
-            FROM cves c
-            LEFT JOIN cve_scores s
-                ON c.cve_id = s.cve_id AND s.score IS NOT NULL AND s.score > 0
-            WHERE s.cve_id IS NULL
-            """
-        )
-        return {row[0] for row in self.cursor.fetchall()}
-
-    def replaceScores(self, cve_id: str, cvss_list: list[dict]) -> None:
-        """Substitui todas as linhas de score de um CVE pelas fornecidas."""
-        self.cursor.execute("DELETE FROM cve_scores WHERE cve_id = ?", (cve_id,))
-        for cvss in cvss_list:
-            self.cursor.execute(
-                "INSERT INTO cve_scores (cve_id, version, score) VALUES (?, ?, ?)",
-                (cve_id, cvss.get("version"), cvss.get("score")),
             )
 
 class CVElistV5:
@@ -2794,97 +2802,6 @@ class CVElistV5:
             print(f"[INFO] Total CVEs skipped (incomplete): {total_skipped_incomplete}")
         print("[INFO] Done!")
 
-    def backfillScores(self) -> None:
-        """
-        Backfill one-shot: recalcula o CVSS dos CVEs que estão sem score válido
-        e reescreve cve_scores, sem tocar no resto dos dados (repos, exploits,
-        PoCs, etc).
-
-        Necessário porque o pipeline incremental só reprocessa um CVE quando ele
-        reaparece num delta — então CVEs antigos afetados pelo bug do parser
-        (vetor CVSS no container ADP) ficariam com score 0/ausente para sempre.
-        Roda sobre o dataset completo (all_CVEs.zip) do cvelistV5.
-        """
-        start_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        print(f"[INFO] Backfill scores start: {start_time}")
-        print(f"[INFO] Opening database at {self.SQLITE_DB}")
-
-        db = databaseSQLite(self.SQLITE_DB)
-        db.createTable()
-
-        targets = db.getCveIdsWithoutValidScore()
-        print(f"[INFO] CVEs without a valid score: {len(targets)}")
-        if not targets:
-            print("[INFO] Nothing to backfill. Database already has scores.")
-            db.conn.close()
-            return
-
-        release_info = self.listReleases()
-        download_url = release_info.get("all_cves_url")
-        if not download_url:
-            db.conn.close()
-            raise Exception("No all_CVEs URL found in latest release")
-
-        pathFileZip = self.downloadFile(download_url, self.DOWNLOAD_ZIP)
-        print("[INFO] Unzipping full database...")
-        folderDatabase = self.unzipDatabase(pathFileZip)
-        if folderDatabase is None:
-            db.conn.close()
-            raise Exception("Failed to extract all_CVEs dataset")
-        print(f"[INFO] Database extracted to: {folderDatabase}")
-
-        updated = 0
-        scanned = 0
-        no_vector = 0
-        remaining = set(targets)
-        for file_path in sorted(folderDatabase.rglob("CVE*.json")):
-            if not remaining:
-                break
-            cve_id = file_path.stem.upper()
-            if cve_id not in remaining:
-                continue
-            scanned += 1
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                print(f"[WARN] Failed to read {cve_id}: {e}")
-                continue
-
-            formatted = self.formatDataVersion5_2(data)
-            cvss = formatted.get("cvss") if formatted else None
-            # Só reescreve se encontramos pelo menos um score > 0; nunca apaga o
-            # que já existe sem ter algo melhor para colocar no lugar.
-            valid = [c for c in (cvss or []) if (c.get("score") or 0) > 0]
-            if not valid:
-                no_vector += 1
-                remaining.discard(cve_id)
-                continue
-
-            db.replaceScores(cve_id, valid)
-            updated += 1
-            remaining.discard(cve_id)
-
-            if updated % 500 == 0:
-                db.conn.commit()
-                print(f"[INFO] Backfilled scores for {updated} CVEs so far...")
-
-        db.conn.commit()
-        db.conn.close()
-
-        if pathFileZip.exists():
-            pathFileZip.unlink()
-        self.cleanupExtractedFolder(folderDatabase)
-
-        print(f"\n[INFO] ==============================")
-        print(f"[INFO] Backfill complete.")
-        print(f"[INFO] Targets (no valid score): {len(targets)}")
-        print(f"[INFO] Matched JSONs scanned:    {scanned}")
-        print(f"[INFO] CVEs updated with score:  {updated}")
-        print(f"[INFO] Still no CVSS vector:     {no_vector}")
-        print(f"[INFO] Not found in dataset:     {len(remaining)}")
-        print("[INFO] Done!")
-
 class findExploits:
     EXPLOITDB_EXPLOITS = "exploit-db.com/exploits/"
     HUNTR_EXPLOITS = "huntr.com/bounties/"
@@ -3294,22 +3211,27 @@ class GitHubArchiveSource:
             print(f"[WARN] Failed to fetch {rel_path}: {e}")
             return None
 
-    def run(self, db: "databaseSQLite") -> None:
+    def run(self, db: "databaseSQLite", force_full: bool = False) -> None:
         info = db.getSourceInfo(self.SOURCE_NAME)
         prior_sha = info.get("last_release_file") if info else None
         head_sha = github_branch_head_sha(self.REPO, self.BRANCH)
         if not head_sha:
             print(f"[WARN] {self.SOURCE_NAME}: could not resolve HEAD sha; skipping")
             return
-        if prior_sha == head_sha:
+        # force_full (backfill): ignora prior_sha e reprocessa todos os arquivos via
+        # scan completo, para aplicar retroativamente lógica nova de _processFile
+        # (ex.: criar CVEs ausentes a partir do advisory) ao histórico já varrido.
+        if force_full:
+            print(f"[INFO] {self.SOURCE_NAME}: forced full re-scan (backfill)")
+        if not force_full and prior_sha == head_sha:
             print(f"[INFO] {self.SOURCE_NAME}: already up to date ({head_sha[:8]})")
             return
 
         started = datetime.now(timezone.utc).isoformat()
         processed = 0
 
-        # Caminho incremental
-        if prior_sha:
+        # Caminho incremental (pulado quando force_full)
+        if prior_sha and not force_full:
             changed = github_compare_files(self.REPO, prior_sha, head_sha)
             if changed is not None:
                 relevant = [p for p in changed if p and self._isRelevantPath(p)]
@@ -3853,35 +3775,12 @@ class NpmPackages:
 
     DOWNLOAD_COUNTS_GIT = "https://github.com/nice-registry/download-counts.git"
 
-    # Mapa autoritativo pacote -> repositório (nice-registry/all-the-package-repos).
-    # data/packages.json é rastreado via Git LFS (~227MB); o raw.githubusercontent
-    # devolve só o ponteiro LFS, então usamos o endpoint media, que serve o JSON real.
-    # Usado apenas para VALIDAR (rejeitar) atribuições nome->repo erradas, nunca para
-    # escolher o nome — isso evita o mis-tag de monorepo da lógica antiga.
-    PACKAGES_URLS = (
-        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/master/data/packages.json",
-        "https://media.githubusercontent.com/media/nice-registry/all-the-package-repos/main/data/packages.json",
-    )
-
-    @staticmethod
-    def _iterSlugRepo(packages):
-        """Normaliza o packages.json em pares (slug, repo_url), aceitando dict ou lista."""
-        if isinstance(packages, dict):
-            for slug, repo in packages.items():
-                if isinstance(repo, str):
-                    yield slug, repo
-                elif isinstance(repo, dict):
-                    url = repo.get("repository") or repo.get("url")
-                    if url:
-                        yield slug, url
-        elif isinstance(packages, list):
-            for item in packages:
-                if not isinstance(item, dict):
-                    continue
-                slug = item.get("name") or item.get("slug")
-                repo = item.get("repository") or item.get("repo") or item.get("url")
-                if slug and isinstance(repo, str):
-                    yield slug, repo
+    # Registro do npm: fonte autoritativa do repositório de cada pacote (campo
+    # .repository). Usado só para VALIDAR (rejeitar) atribuições nome->repo erradas,
+    # nunca para escolher o nome. Consulta pequena por pacote, com retry e cache
+    # persistente (npm_repo_cache) — sem download massivo que possa falhar e desligar
+    # o guard em silêncio.
+    REGISTRY_URL = "https://registry.npmjs.org/{name}/latest"
 
     @staticmethod
     def _pkgNameFromUrl(package_url: str | None) -> str | None:
@@ -3891,36 +3790,56 @@ class NpmPackages:
         name = package_url.rsplit("/package/", 1)[-1].strip()
         return name or None
 
-    def _loadKnownRepoMap(self, db: "databaseSQLite", needed_names: set[str]) -> dict | None:
+    def _resolvePackageRepo(self, db: "databaseSQLite", name: str) -> str | None:
         """
-        Baixa o all-the-package-repos e devolve {slug -> fullpath GitHub} restrito a
-        `needed_names` (descarta o dict gigante após filtrar, mantendo a memória baixa).
-        Retorna None se não conseguir carregar — chamador segue sem o guard.
-        """
-        if not needed_names:
-            return {}
-        dest = self.DATA_DIR / "all-the-package-repos.json"
-        packages = None
-        for url in self.PACKAGES_URLS:
-            try:
-                download_to(url, dest)
-                with open(dest, "r", encoding="utf-8") as f:
-                    packages = json.load(f)
-                break
-            except (REQUEST_EXCEPTION, json.JSONDecodeError, OSError, ValueError) as e:
-                print(f"[WARN] npm: failed to fetch {url}: {e}")
-        dest.unlink(missing_ok=True)
-        if packages is None:
-            return None
+        Repositório GitHub canônico do pacote `name`, com cache persistente.
 
-        known_repo: dict[str, str] = {}
-        for slug, repo_url in self._iterSlugRepo(packages):
-            if slug not in needed_names:
+        Consulta registry.npmjs.org/<nome>/latest e lê .repository. 404 => grava NULL
+        (publicado-não, sem repo) no cache. Erro transitório (rede/5xx) => devolve
+        None SEM cachear (não rejeita; re-tenta no próximo run). Sucesso => grava o
+        fullpath resolvido (ou NULL) no cache.
+        """
+        cached, fullpath = db.getNpmRepoFromCache(name)
+        if cached:
+            return fullpath
+
+        url = self.REGISTRY_URL.format(name=name.replace("/", "%2F"))
+        try:
+            resp = http_get(url, timeout=20)
+        except REQUEST_EXCEPTION:
+            return None  # transitório: não cacheia, não rejeita
+        if resp.status_code == 404:
+            db.setNpmRepoCache(name, None)
+            return None
+        if resp.status_code != 200:
+            return None  # transitório (5xx/429)
+        try:
+            repository = resp.json().get("repository")
+        except ValueError:
+            return None
+        repo_url = None
+        if isinstance(repository, dict):
+            repo_url = repository.get("url")
+        elif isinstance(repository, str):
+            repo_url = repository
+        fullpath = db._fullpathFromUrl(repo_url) if repo_url else None
+        db.setNpmRepoCache(name, fullpath)
+        return fullpath
+
+    def _buildKnownRepoMap(self, db: "databaseSQLite", names: set[str]) -> dict:
+        """Resolve cada nome distinto uma vez -> {name: fullpath|None} (com cache)."""
+        known_repo: dict[str, str | None] = {}
+        resolved = 0
+        for name in names:
+            if not name:
                 continue
-            fullpath = db._fullpathFromUrl(repo_url)
-            if fullpath:
-                known_repo[slug] = fullpath
-        del packages
+            known_repo[name] = self._resolvePackageRepo(db, name)
+            resolved += 1
+            if resolved % 200 == 0:
+                db.conn.commit()  # preserva o cache mesmo se o run for interrompido
+                print(f"[INFO] npm: resolved {resolved}/{len(names)} package repos")
+            time.sleep(0.02)  # educado com o registry público
+        db.conn.commit()
         return known_repo
 
     def _resolveLatestBuildBranch(self) -> str | None:
@@ -4004,14 +3923,13 @@ class NpmPackages:
             print("[WARN] npm: no download-counts available to validate names; skipping")
             return
 
-        # 3. Mapa autoritativo pacote -> repositório (all-the-package-repos), restrito
-        #    aos nomes que precisamos checar: os candidates + os que já estão como npm
-        #    (para o scrub retroativo). Serve só para REJEITAR atribuições erradas.
-        # (fullpath, name) dos repos atualmente npm, para o scrub. O nome vem do
-        # repo_manifests.npm_name quando existe; senão é extraído do package_url
-        # (cobre tags obsoletas em repos fora do cache de manifestos).
+        # 3. Mapa autoritativo pacote -> repositório (registry.npmjs.org), restrito aos
+        #    nomes que precisamos checar: os candidates + os que já estão como npm (para
+        #    o scrub retroativo). Serve só para REJEITAR atribuições erradas.
+        # (fullpath, name) dos repos atualmente npm, para o scrub. O nome vem PRIMEIRO
+        # do package_url (o que está REALMENTE taggeado) e só então do repo_manifests.
         existing_npm = [
-            (row[0], row[2] or self._pkgNameFromUrl(row[1]))
+            (row[0], self._pkgNameFromUrl(row[1]) or row[2])
             for row in db.cursor.execute(
                 "SELECT r.fullpath, r.package_url, m.npm_name "
                 "FROM repositories r LEFT JOIN repo_manifests m ON m.fullpath = r.fullpath "
@@ -4020,12 +3938,9 @@ class NpmPackages:
         ]
         needed_names = {npm_name for _, npm_name in candidates}
         needed_names.update(name for _, name in existing_npm if name)
-        known_repo = self._loadKnownRepoMap(db, needed_names)
-        if known_repo is None:
-            print("[WARN] npm: could not load all-the-package-repos; proceeding WITHOUT "
-                  "the package->repo guard this run")
-        else:
-            print(f"[INFO] npm: package->repo guard loaded ({len(known_repo)} known repos)")
+        print(f"[INFO] npm: resolving canonical repo for {len(needed_names)} package names "
+              f"(npm registry, cached)")
+        known_repo = self._buildKnownRepoMap(db, needed_names)
 
         # 4. Reset retroativo: limpa o enriquecimento npm de repos já varridos. Os
         #    repos válidos são reconfirmados no loop abaixo; falsos-positivos da lógica
@@ -4035,8 +3950,8 @@ class NpmPackages:
             print(f"[INFO] npm: reset {reset} previously-enriched repos (will reconfirm valid ones)")
 
         # 5. Scrub retroativo: repos ainda marcados npm cujo pacote pertence, segundo o
-        #    all-the-package-repos, a OUTRO repositório (ex.: grafana/grafana-image-renderer
-        #    com 'minimatch', que é de isaacs/minimatch) voltam a 'github'. Pega também os
+        #    registry, a OUTRO repositório (ex.: grafana/grafana-image-renderer com
+        #    'minimatch', que é de isaacs/minimatch) voltam a 'github'. Pega também os
         #    obsoletos fora de repo_manifests, que o reset acima não toca.
         scrubbed = 0
         if known_repo:
@@ -4278,7 +4193,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "scan-manifests", "osv-npm", "npm", "packagist", "update-fixes", "backfill-scores", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "scan-manifests", "osv-npm", "npm", "packagist", "update-fixes", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -4292,7 +4207,6 @@ def main() -> None:
             "'npm' (enrich repos with npm package metadata using the scanned name), "
             "'packagist' (enrich repos with Packagist package metadata using the scanned name), "
             "'update-fixes' (recalculate commits_fix), "
-            "'backfill-scores' (recompute CVSS for CVEs missing a valid score), "
             "'manifest' (generate public/db/manifest.json), "
             "'all' (cves+repos+advisories+pocs+wordpress+scan-manifests+osv-npm+npm+packagist+manifest)"
         ),
@@ -4388,7 +4302,12 @@ def main() -> None:
         action="store_true",
         help="Generate .gz from base sqlite file if missing"
     )
-    
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Force a full re-scan for the advisories command (backfill: create advisory-only CVEs missing from the DB instead of incremental)"
+    )
+
     args = parser.parse_args()
     if args.batch_size <= 0:
         raise SystemExit("[ERROR] --batch-size must be greater than zero")
@@ -4446,7 +4365,7 @@ def main() -> None:
         print("[INFO] Enriching CVEs from GitHub Advisory Database (github/advisory-database)...")
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
-        GitHubAdvisory().run(db)
+        GitHubAdvisory().run(db, force_full=args.full)
         db.conn.close()
 
     if args.command in ["pocs", "all"]:
@@ -4490,10 +4409,6 @@ def main() -> None:
         db = databaseSQLite(db_path)
         PackagistPackages().run(db)
         db.conn.close()
-
-    if args.command == "backfill-scores":
-        print("[INFO] Backfilling CVSS scores for CVEs missing a valid score...")
-        CVElistV5().backfillScores()
 
     if args.command == "update-fixes":
         print("[INFO] Updating commits_fix for all repositories...")

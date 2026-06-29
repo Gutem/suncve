@@ -7,6 +7,11 @@ on:
         description: "Batch size for repository verification"
         required: false
         default: "200"
+      advisories_full:
+        description: "Full re-scan of the GitHub Advisory DB (backfill advisory-only CVEs)"
+        type: boolean
+        required: false
+        default: false
   schedule:
     - cron: "0 7 * * *"
 
@@ -97,7 +102,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python scripts/create-manifest.py advisories
+          python scripts/create-manifest.py advisories ${{ github.event.inputs.advisories_full == 'true' && '--full' || '' }}
 
       - name: Enrich POCs from PoC-in-GitHub
         env:
