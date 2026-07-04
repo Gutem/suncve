@@ -537,7 +537,10 @@ export async function ensureDatabaseStored(
 function applyClientSchemaMigrations(db: SqlJsDatabase): void {
   const addColumns = [
     'ALTER TABLE repositories ADD COLUMN downloads INTEGER',
-    'ALTER TABLE repositories ADD COLUMN package_url TEXT'
+    'ALTER TABLE repositories ADD COLUMN package_url TEXT',
+    // Enriquecimento Nuclei: flag + lista de templates relacionados por CVE.
+    'ALTER TABLE cves ADD COLUMN exists_nuclei BOOLEAN DEFAULT 0',
+    'ALTER TABLE cves ADD COLUMN list_nuclei TEXT'
   ];
   for (const sql of addColumns) {
     try {

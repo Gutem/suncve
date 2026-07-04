@@ -123,7 +123,7 @@ export function FiltersPanel({
 
   const handleBooleanFilter = useCallback(
     (
-      key: 'hasExploit' | 'hasRepository' | 'hasCommitFix',
+      key: 'hasExploit' | 'hasRepository' | 'hasCommitFix' | 'hasNuclei',
       value: boolean | null
     ) => {
       onFiltersChange({ ...filters, [key]: value });
@@ -427,6 +427,13 @@ export function FiltersPanel({
                 <TriStateSwitch
                   value={filters.hasCommitFix}
                   onChange={(v) => handleBooleanFilter('hasCommitFix', v)}
+                />
+              </div>
+              <div className='flex items-center justify-between'>
+                <span className='text-sm'>{t('hasNuclei')}</span>
+                <TriStateSwitch
+                  value={filters.hasNuclei}
+                  onChange={(v) => handleBooleanFilter('hasNuclei', v)}
                 />
               </div>
             </div>

@@ -88,6 +88,7 @@ const searchParamsConfig = {
   exploit: parseAsNullableBoolean,
   repo: parseAsNullableBoolean,
   commit: parseAsNullableBoolean,
+  nuclei: parseAsNullableBoolean,
 
   // Language filter (comma-separated)
   lang: parseAsArrayOf(parseAsString).withDefault([]),
@@ -142,6 +143,7 @@ export function useSearchParams() {
       hasExploit: params.exploit,
       hasRepository: params.repo,
       hasCommitFix: params.commit,
+      hasNuclei: params.nuclei,
       languages: params.lang.filter(Boolean),
       starsMin: params.starsMin,
       starsMax: params.starsMax,
@@ -182,6 +184,7 @@ export function useSearchParams() {
         exploit: newFilters.hasExploit,
         repo: newFilters.hasRepository,
         commit: newFilters.hasCommitFix,
+        nuclei: newFilters.hasNuclei,
         lang: newFilters.languages.length > 0 ? newFilters.languages : null,
         starsMin: newFilters.starsMin,
         starsMax: newFilters.starsMax,
@@ -233,6 +236,7 @@ export function useSearchParams() {
       exploit: null,
       repo: null,
       commit: null,
+      nuclei: null,
       lang: null,
       starsMin: null,
       starsMax: null,
@@ -262,6 +266,7 @@ export function useSearchParams() {
       filters.hasExploit !== null ||
       filters.hasRepository !== null ||
       filters.hasCommitFix !== null ||
+      filters.hasNuclei !== null ||
       filters.languages.length > 0 ||
       filters.starsMin !== null ||
       filters.starsMax !== null ||

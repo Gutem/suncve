@@ -10,9 +10,11 @@ export interface CVE {
   description: string | null;
   exists_exploit: boolean;
   exists_commit: boolean;
+  exists_nuclei: boolean;
   list_exploit: string | null; // JSON string
   list_commit: string | null; // JSON string
   list_references: string | null; // JSON string
+  list_nuclei: string | null; // JSON string (array of NucleiTemplate)
 }
 
 export interface CVEWithDetails extends CVE {
@@ -20,6 +22,16 @@ export interface CVEWithDetails extends CVE {
   cwes: string[];
   affected: CVEAffected[];
   repositories: RepositoryRelation[];
+  nuclei: NucleiTemplate[];
+}
+
+// Nuclei template metadata (parsed from cves.list_nuclei JSON)
+export interface NucleiTemplate {
+  template_id: string; // nuclei template id (info/id)
+  path: string; // path within projectdiscovery/nuclei-templates
+  severity?: string; // info.severity
+  tags?: string[]; // info.tags
+  url?: string; // raw.githubusercontent.com URL of the template
 }
 
 export interface CVEScore {
@@ -117,6 +129,7 @@ export interface SearchFilters {
   hasExploit: boolean | null;
   hasRepository: boolean | null;
   hasCommitFix: boolean | null;
+  hasNuclei: boolean | null;
   languages: string[];
   starsMin: number | null;
   starsMax: number | null;
@@ -141,6 +154,7 @@ export const defaultFilters: SearchFilters = {
   hasExploit: null,
   hasRepository: null,
   hasCommitFix: null,
+  hasNuclei: null,
   languages: [],
   starsMin: null,
   starsMax: null,
@@ -181,6 +195,7 @@ export interface CVESearchResult {
   date_updated: string | null;
   exists_exploit: boolean;
   exists_commit: boolean;
+  exists_nuclei: boolean;
   max_score: number | null;
   severity: Severity;
   cwe_list: string | null;

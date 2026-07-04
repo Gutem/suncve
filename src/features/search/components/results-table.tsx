@@ -8,7 +8,8 @@ import {
   IconSkull,
   IconGitCommit,
   IconBrandGithub,
-  IconStar
+  IconStar,
+  IconTargetArrow
 } from '@tabler/icons-react';
 import {
   Table,
@@ -164,7 +165,7 @@ export function ResultsTable({
                       <SortIcon field='score' />
                     </Button>
                   </TableHead>
-                  <TableHead className='w-[80px]'>{t('flags')}</TableHead>
+                  <TableHead className='w-[100px]'>{t('flags')}</TableHead>
                   <TableHead className='w-[120px]'>{t('affected')}</TableHead>
                   <TableHead className='w-[150px]'>{t('repository')}</TableHead>
                   <TableHead className='w-[120px]'>
@@ -206,18 +207,26 @@ export function ResultsTable({
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className='flex gap-1'>
+                      <div className='flex flex-nowrap gap-1'>
                         {cve.exists_exploit && (
-                          <Badge variant='destructive' className='gap-1'>
+                          <Badge variant='destructive' className='px-1.5'>
                             <IconSkull className='h-3 w-3' />
                           </Badge>
                         )}
                         {cve.exists_commit && (
                           <Badge
                             variant='secondary'
-                            className='gap-1 bg-green-500/20 text-green-700 dark:text-green-400'
+                            className='bg-green-500/20 px-1.5 text-green-700 dark:text-green-400'
                           >
                             <IconGitCommit className='h-3 w-3' />
+                          </Badge>
+                        )}
+                        {cve.exists_nuclei && (
+                          <Badge
+                            variant='secondary'
+                            className='bg-cyan-500/20 px-1.5 text-cyan-700 dark:text-cyan-400'
+                          >
+                            <IconTargetArrow className='h-3 w-3' />
                           </Badge>
                         )}
                       </div>
@@ -361,7 +370,7 @@ function TableSkeleton() {
                   <TableHead className='w-[140px]'>CVE ID</TableHead>
                   <TableHead className='w-[80px]'>Title</TableHead>
                   <TableHead className='w-[80px]'>Score</TableHead>
-                  <TableHead className='w-[80px]'>Flags</TableHead>
+                  <TableHead className='w-[100px]'>Flags</TableHead>
                   <TableHead className='w-[120px]'>Affected</TableHead>
                   <TableHead className='w-[150px]'>Repository</TableHead>
                   <TableHead className='w-[100px]'>Published</TableHead>

@@ -351,6 +351,7 @@ export function useRepositorySearch() {
         date_updated: string | null;
         exists_exploit: number;
         exists_commit: number;
+        exists_nuclei: number;
         max_score: number | null;
         relation_type: string | null;
       }>(
@@ -363,6 +364,7 @@ export function useRepositorySearch() {
           c.date_updated,
           c.exists_exploit,
           c.exists_commit,
+          c.exists_nuclei,
           (SELECT MAX(score) FROM cve_scores WHERE cve_id = c.cve_id) as max_score,
           cr.relation_type
         FROM cve_repositories cr
@@ -383,6 +385,7 @@ export function useRepositorySearch() {
         date_updated: cve.date_updated,
         exists_exploit: Boolean(cve.exists_exploit),
         exists_commit: Boolean(cve.exists_commit),
+        exists_nuclei: Boolean(cve.exists_nuclei),
         max_score: cve.max_score,
         severity: getSeverityFromScore(cve.max_score ?? 0),
         cwe_list: null,

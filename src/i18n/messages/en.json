@@ -193,6 +193,7 @@
       "hasExploit": "Has Exploit",
       "hasRepository": "Has Repository",
       "hasCommitFix": "Has Commit Fix",
+      "hasNuclei": "Has Nuclei",
       "ecosystem": "Ecosystem",
       "ecosystemAll": "All",
       "popDownloads": "Downloads",
@@ -229,6 +230,7 @@
     "detail": {
       "hasExploit": "Exploit",
       "hasCommitFix": "Fix Available",
+      "hasNuclei": "Nuclei",
       "published": "Published",
       "updated": "Updated",
       "cvssScores": "CVSS Scores",
@@ -237,6 +239,7 @@
       "repositories": "Related Repositories",
       "exploits": "Exploits",
       "commitFixes": "Fix Commits",
+      "nuclei": "Nuclei Templates",
       "references": "References",
       "more": "more",
       "copyLink": "Copy Link",
