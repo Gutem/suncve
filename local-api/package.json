@@ -1,0 +1,26 @@
+{
+  "name": "suncve-local-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local read-only HTTP API + MCP server over the SunCVE SQLite snapshot",
+  "scripts": {
+    "db:download": "node scripts/download-db.mjs",
+    "dev:api": "tsx watch src/http.ts",
+    "start:api": "tsx src/http.ts",
+    "start:mcp": "tsx src/mcp.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "better-sqlite3": "^11.8.1",
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
