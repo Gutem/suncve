@@ -773,9 +773,23 @@ class databaseSQLite:
             exists_commit BOOLEAN,
             list_exploit JSON,
             list_commit JSON,
-            list_references JSON
+            list_references JSON,
+            exists_nuclei BOOLEAN,
+            list_nuclei JSON
         )
         """)
+
+        # Migração: campos de templates Nuclei (projectdiscovery/nuclei-templates)
+        # para bancos antigos. Espelha o par exists_exploit/list_exploit.
+        # list_nuclei é um array de {template_id, path, url} (só o link do template).
+        for column_ddl in (
+            "ALTER TABLE cves ADD COLUMN exists_nuclei BOOLEAN",
+            "ALTER TABLE cves ADD COLUMN list_nuclei JSON",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
 
         # 2. Tabela de Scores (1 CVE -> N Scores)
         self.cursor.execute("""
@@ -889,6 +903,7 @@ class databaseSQLite:
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_fullpath ON cve_repositories(repository_fullpath)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_ecosystem ON repositories(ecosystem)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_downloads ON repositories(downloads)")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_cves_exists_nuclei ON cves(exists_nuclei)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_npm ON repo_manifests(npm_name)")
         self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_composer ON repo_manifests(composer_name)")
         
@@ -1819,6 +1834,36 @@ class databaseSQLite:
                 "INSERT OR IGNORE INTO cve_affected (cve_id, vendor, product) VALUES (?, ?, ?)",
                 (cve_id, aff.get("vendor"), aff.get("product")),
             )
+
+    def addNucleiTemplates(self, cve_id: str, templates: list[dict]) -> bool:
+        """
+        Mescla templates Nuclei no list_nuclei de um CVE existente (dedup por
+        `path`, a identidade única do arquivo — o mesmo CVE pode ter mais de um
+        template, e todos compartilham o mesmo template_id/nome) e seta
+        exists_nuclei=1. Espelha enrichExploitUrls: só grava quando o CVE existe
+        e há template novo. Cada template é um dict {template_id, path, url}.
+        """
+        current = self._loadJsonList(cve_id, "list_nuclei")
+        if current is None:
+            return False
+        existing_paths = {t.get("path") for t in current if isinstance(t, dict)}
+        added = False
+        for tpl in templates:
+            if not isinstance(tpl, dict):
+                continue
+            path = tpl.get("path")
+            if path and path in existing_paths:
+                continue
+            current.append(tpl)
+            if path:
+                existing_paths.add(path)
+            added = True
+        if added:
+            self.cursor.execute(
+                "UPDATE cves SET exists_nuclei = 1, list_nuclei = ? WHERE cve_id = ?",
+                (json.dumps(current), cve_id),
+            )
+        return added
 
 class CVElistV5:
     # Paths centralizados - todos relativos ao root do projeto
@@ -3400,6 +3445,113 @@ class PoCInGitHub(GitHubArchiveSource):
         return 1
 
 
+class NucleiTemplates(GitHubArchiveSource):
+    """
+    Fonte Nuclei Templates (projectdiscovery/nuclei-templates): mapeia cada CVE
+    para o(s) template(s) do Nuclei que a detectam, guardando apenas o LINK do
+    template. Enriquece o par exists_nuclei/list_nuclei de CVEs já existentes
+    (não cria CVEs).
+
+    Descoberta por UMA chamada à Git Trees API (`?recursive=1`), que devolve todos
+    os paths do repo sem baixar conteúdo. Filtramos os arquivos `CVE-XXXX-YYYY.yaml`
+    (em http/network/javascript/code/dast/headless) e montamos a URL raw — nada de
+    clonar o repo, baixar templates ou parsear YAML.
+
+    Roda SEMPRE em full: como o custo é só 2 chamadas de API + match no SQLite
+    (~2s, nenhum template baixado), não vale um skip por SHA — e o full garante que
+    CVEs recém-adicionadas ao NOSSO banco também sejam ligadas a templates que já
+    existiam antes delas (o cvelistV5 costuma entrar depois do template). O SHA do
+    HEAD é gravado em `sources` só para registro. Fallback para o zip só se a Trees
+    API vier `truncated` (limite da API; não ocorre nesse repo).
+    """
+    REPO = "projectdiscovery/nuclei-templates"
+    BRANCH = "main"
+    SOURCE_NAME = "nuclei-templates"
+
+    # Nome de arquivo de template de CVE: captura o CVE id (ex.: CVE-2021-44228.yaml).
+    _CVE_FILE_RE = re.compile(r'(CVE-\d{4}-\d{4,})\.ya?ml$', re.IGNORECASE)
+
+    def _isRelevantPath(self, path: str) -> bool:
+        return self._CVE_FILE_RE.search(path) is not None
+
+    def _linkForPath(self, rel_path: str):
+        """Retorna (cve_id, template_dict) para um path de template, ou None."""
+        match = self._CVE_FILE_RE.search(rel_path)
+        if not match:
+            return None
+        return match.group(1).upper(), {
+            "template_id": Path(rel_path).stem,
+            "path": rel_path,
+            "url": f"https://raw.githubusercontent.com/{self.REPO}/{self.BRANCH}/{rel_path}",
+        }
+
+    def _fetchTreePaths(self, sha: str):
+        """
+        Git Trees API (recursiva): retorna (paths_relevantes, truncated).
+        paths=None em caso de erro de rede/HTTP.
+        """
+        url = f"https://api.github.com/repos/{self.REPO}/git/trees/{sha}?recursive=1"
+        try:
+            resp = http_get(url, headers=_github_api_headers())
+            if resp.status_code != 200:
+                print(f"[WARN] {self.SOURCE_NAME}: trees API HTTP {resp.status_code}")
+                return None, False
+            data = resp.json()
+        except (REQUEST_EXCEPTION, ValueError) as e:
+            print(f"[WARN] {self.SOURCE_NAME}: trees API failed: {e}")
+            return None, False
+        paths = [
+            node["path"]
+            for node in data.get("tree", [])
+            if node.get("type") == "blob" and self._isRelevantPath(node.get("path", ""))
+        ]
+        return paths, bool(data.get("truncated"))
+
+    def _iterZipPaths(self, root: Path):
+        """Fallback: caminhos relevantes do zip extraído (só nomes, sem ler conteúdo)."""
+        for pattern in ("*.yaml", "*.yml"):
+            for p in root.rglob(pattern):
+                rel = str(p.relative_to(root))
+                if self._isRelevantPath(rel):
+                    yield rel
+
+    def _enrich(self, db: "databaseSQLite", paths) -> int:
+        enriched = 0
+        for i, rel_path in enumerate(paths, 1):
+            res = self._linkForPath(rel_path)
+            if not res:
+                continue
+            cve_id, template = res
+            if db.cveExists(cve_id) and db.addNucleiTemplates(cve_id, [template]):
+                enriched += 1
+            if i % 1000 == 0:
+                db.conn.commit()
+        db.conn.commit()
+        return enriched
+
+    def run(self, db: "databaseSQLite", force_full: bool = False) -> None:
+        # force_full é aceito por compatibilidade com o dispatch, mas esta fonte
+        # roda sempre em full (barato) — não há caminho incremental.
+        db.createTable()  # garante exists_nuclei/list_nuclei em snapshots antigos
+        head_sha = github_branch_head_sha(self.REPO, self.BRANCH)
+        if not head_sha:
+            print(f"[WARN] {self.SOURCE_NAME}: could not resolve HEAD sha; skipping")
+            return
+
+        started = datetime.now(timezone.utc).isoformat()
+        paths, truncated = self._fetchTreePaths(head_sha)
+        if paths is not None and not truncated:
+            processed = self._enrich(db, paths)
+            print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs from {len(paths)} templates (trees API)")
+        else:
+            reason = "trees API truncated" if truncated else "trees API unavailable"
+            print(f"[WARN] {self.SOURCE_NAME}: {reason}; falling back to zip scan")
+            root = self._downloadArchive()
+            processed = self._enrich(db, list(self._iterZipPaths(root)))
+            print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (zip fallback)")
+        db.updateSource(self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha)
+
+
 class GitHubAdvisory(GitHubArchiveSource):
     """
     Fonte GitHub Advisory Database (github/advisory-database, formato OSV).
@@ -4193,7 +4345,7 @@ def main() -> None:
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "wordpress", "scan-manifests", "osv-npm", "npm", "packagist", "update-fixes", "manifest", "all"],
+        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "nuclei", "wordpress", "scan-manifests", "osv-npm", "npm", "packagist", "update-fixes", "manifest", "all"],
         nargs="?",
         default="cves",
         help=(
@@ -4201,6 +4353,7 @@ def main() -> None:
             "'cves-ids' (import specific CVE IDs), "
             "'advisories' (enrich CVEs from GitHub Advisory Database), "
             "'pocs' (enrich exploit fields from PoC-in-GitHub), "
+            "'nuclei' (enrich exists_nuclei/list_nuclei from projectdiscovery/nuclei-templates), "
             "'wordpress' (enrich WordPress plugins with install/download metrics), "
             "'scan-manifests' (read package.json/composer.json name from each repo's default branch), "
             "'osv-npm' (override repo npm names from the OSV npm feed, CVE->package), "
@@ -4208,7 +4361,7 @@ def main() -> None:
             "'packagist' (enrich repos with Packagist package metadata using the scanned name), "
             "'update-fixes' (recalculate commits_fix), "
             "'manifest' (generate public/db/manifest.json), "
-            "'all' (cves+repos+advisories+pocs+wordpress+scan-manifests+osv-npm+npm+packagist+manifest)"
+            "'all' (cves+repos+advisories+pocs+nuclei+wordpress+scan-manifests+osv-npm+npm+packagist+manifest)"
         ),
     )
     parser.add_argument(
@@ -4373,6 +4526,13 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         PoCInGitHub().run(db)
+        db.conn.close()
+
+    if args.command in ["nuclei", "all"]:
+        print("[INFO] Enriching Nuclei templates (projectdiscovery/nuclei-templates)...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        NucleiTemplates().run(db, force_full=args.full)
         db.conn.close()
 
     if args.command in ["wordpress", "all"]:

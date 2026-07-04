@@ -51,6 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_cves_date_published ON cves(date_published);
 CREATE INDEX IF NOT EXISTS idx_cves_date_updated ON cves(date_updated);
 CREATE INDEX IF NOT EXISTS idx_cves_exists_exploit ON cves(exists_exploit);
 CREATE INDEX IF NOT EXISTS idx_cves_exists_commit ON cves(exists_commit);
+CREATE INDEX IF NOT EXISTS idx_cves_exists_nuclei ON cves(exists_nuclei);
 
 -- =====================================================
 -- OTIMIZAÇÕES DE STORAGE

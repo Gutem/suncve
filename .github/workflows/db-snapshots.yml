@@ -110,6 +110,12 @@ jobs:
         run: |
           python scripts/create-manifest.py pocs
 
+      - name: Enrich Nuclei Templates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/create-manifest.py nuclei
+
       - name: Enrich WordPress Plugin Metrics
         run: |
           python scripts/create-manifest.py wordpress
