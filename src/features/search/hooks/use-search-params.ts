@@ -89,6 +89,7 @@ const searchParamsConfig = {
   repo: parseAsNullableBoolean,
   commit: parseAsNullableBoolean,
   nuclei: parseAsNullableBoolean,
+  kev: parseAsNullableBoolean,
 
   // Language filter (comma-separated)
   lang: parseAsArrayOf(parseAsString).withDefault([]),
@@ -144,6 +145,7 @@ export function useSearchParams() {
       hasRepository: params.repo,
       hasCommitFix: params.commit,
       hasNuclei: params.nuclei,
+      hasKev: params.kev,
       languages: params.lang.filter(Boolean),
       starsMin: params.starsMin,
       starsMax: params.starsMax,
@@ -185,6 +187,7 @@ export function useSearchParams() {
         repo: newFilters.hasRepository,
         commit: newFilters.hasCommitFix,
         nuclei: newFilters.hasNuclei,
+        kev: newFilters.hasKev,
         lang: newFilters.languages.length > 0 ? newFilters.languages : null,
         starsMin: newFilters.starsMin,
         starsMax: newFilters.starsMax,
@@ -237,6 +240,7 @@ export function useSearchParams() {
       repo: null,
       commit: null,
       nuclei: null,
+      kev: null,
       lang: null,
       starsMin: null,
       starsMax: null,
@@ -267,6 +271,7 @@ export function useSearchParams() {
       filters.hasRepository !== null ||
       filters.hasCommitFix !== null ||
       filters.hasNuclei !== null ||
+      filters.hasKev !== null ||
       filters.languages.length > 0 ||
       filters.starsMin !== null ||
       filters.starsMax !== null ||
