@@ -194,6 +194,8 @@
       "hasRepository": "Has Repository",
       "hasCommitFix": "Has Commit Fix",
       "hasNuclei": "Has Nuclei",
+      "hasKev": "In KEV (CISA)",
+      "hasMissingTemplate": "No Nuclei Template",
       "ecosystem": "Ecosystem",
       "ecosystemAll": "All",
       "popDownloads": "Downloads",

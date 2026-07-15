@@ -791,6 +791,27 @@ class databaseSQLite:
             except sqlite3.OperationalError:
                 pass  # Coluna já existe
 
+        # Migração: campos KEV (CISA Known Exploited Vulnerabilities)
+        for column_ddl in (
+            "ALTER TABLE cves ADD COLUMN in_kev BOOLEAN DEFAULT 0",
+            "ALTER TABLE cves ADD COLUMN kev_date_added TEXT",
+            "ALTER TABLE cves ADD COLUMN kev_due_date TEXT",
+            "ALTER TABLE cves ADD COLUMN kev_ransomware BOOLEAN DEFAULT 0",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
+
+        # Migração: missing template indicator (edoardottt/missing-cve-nuclei-templates)
+        for column_ddl in (
+            "ALTER TABLE cves ADD COLUMN missing_nuclei_template BOOLEAN DEFAULT 0",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
+
         # 2. Tabela de Scores (1 CVE -> N Scores)
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS cve_scores (
@@ -3908,6 +3929,81 @@ class WordfenceNucleiTemplates:
         )
 
 
+class MissingNucleiTemplates:
+    """
+    Enriquece CVEs com indicador de "template ausente" baseado na lista semanal do
+    repositorio edoardottt/missing-cve-nuclei-templates.
+
+    Contem 65k+ CVEs que NAO possuem template no repositorio oficial do Nuclei,
+    organizadas por ano em data/year/YYYY.txt.
+    Formato: [ CVE-YYYY-NNNNN ] [ vuln_type ] URL
+    """
+
+    BASE_URL = (
+        "https://raw.githubusercontent.com/edoardottt/"
+        "missing-cve-nuclei-templates/main/data/year"
+    )
+    SOURCE_NAME = "missing-nuclei-templates"
+
+    _CVE_LINE_RE = re.compile(r"\[ (CVE-\d{4}-\d{4,}) \]")
+
+    @staticmethod
+    def _parseCveIds(text: str) -> list[str]:
+        return [
+            m.group(1).upper()
+            for m in MissingNucleiTemplates._CVE_LINE_RE.finditer(text)
+        ]
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        started = datetime.now(timezone.utc).isoformat()
+        total_cves = 0
+        enriched = 0
+
+        for year in range(1999, datetime.now().year + 1):
+            url = f"{self.BASE_URL}/{year}.txt"
+            try:
+                resp = http_get(url, headers={"User-Agent": "SunCVE/1.0"}, timeout=30)
+                if resp.status_code == 404:
+                    continue
+                resp.raise_for_status()
+                text = resp.text
+            except Exception as e:
+                print(f"  [WARN] missing-templates: year {year} download failed: {e}")
+                continue
+
+            cve_ids = set(self._parseCveIds(text))
+            year_enriched = 0
+
+            for cve_id in cve_ids:
+                if db.cveExists(cve_id):
+                    db.cursor.execute(
+                        "UPDATE cves SET missing_nuclei_template = 1 WHERE cve_id = ?",
+                        (cve_id,),
+                    )
+                    year_enriched += 1
+
+            total_cves += len(cve_ids)
+            enriched += year_enriched
+            db.conn.commit()
+            print(
+                f"  [INFO] missing-templates: year {year} — "
+                f"{len(cve_ids)} CVEs listed, {year_enriched} in database"
+            )
+
+        print(
+            f"[INFO] missing-templates: {total_cves} CVEs missing template, "
+            f"{enriched} enriched in database"
+        )
+        db.updateSource(
+            self.SOURCE_NAME,
+            started,
+            started,
+            datetime.now(timezone.utc).isoformat(),
+        )
+
+
 class RepoManifestScanner:
     """
     Descobre o NOME canônico do pacote de cada repositório lendo o manifesto raiz
@@ -4757,6 +4853,13 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         WordfenceNucleiTemplates().run(db)
+        db.conn.close()
+
+    if args.command in ["missing-templates", "all"]:
+        print("[INFO] Enriching with missing nuclei template indicator...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        MissingNucleiTemplates().run(db)
         db.conn.close()
 
     if args.command in ["wordpress", "all"]:

@@ -198,6 +198,8 @@
       "hasRepository": "Com Repositório",
       "hasCommitFix": "Com Commit Fix",
       "hasNuclei": "Com Nuclei",
+      "hasKev": "No KEV (CISA)",
+      "hasMissingTemplate": "Sem Template Nuclei",
       "ecosystem": "Ecossistema",
       "ecosystemAll": "Todos",
       "popDownloads": "Downloads",
