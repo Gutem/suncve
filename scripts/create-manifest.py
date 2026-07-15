@@ -2598,7 +2598,16 @@ class CVElistV5:
         # Description e Title
         descriptions = cna.get("descriptions", [])
         description = descriptions[0].get("value") if descriptions else None
-        title = cna.get("title") or "No Title Found"
+        title = cna.get("title") or ""
+
+        if not title and description:
+            title = description.strip()[:140]
+            if len(description) > 140:
+                title = title.rsplit(" ", 1)[0]
+            if not title.endswith("."):
+                title += "..."
+        if not title:
+            title = "No Title Found"
 
         # References
         references = [
@@ -5112,6 +5121,9 @@ def main() -> None:
             "osv-npm",
             "npm",
             "packagist",
+            "kev",
+            "wordfence-nuclei",
+            "missing-templates",
             "update-fixes",
             "manifest",
             "all",
