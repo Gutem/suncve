@@ -34,7 +34,10 @@
     "exploitsAvailable": "Exploits disponíveis",
     "newFixes": "Novos Fixes",
     "newFixesFooter": "Correções disponíveis",
-    "patchesReleased": "Patches lançados"
+    "patchesReleased": "Patches lançados",
+    "newInKev": "CVEs no KEV",
+    "newInKevFooter": "Exploração ativa confirmada",
+    "cisaCatalog": "Catálogo CISA KEV"
   },
   "charts": {
     "cvesByPeriod": "CVEs por Período",
@@ -198,6 +201,7 @@
       "hasRepository": "Com Repositório",
       "hasCommitFix": "Com Commit Fix",
       "hasNuclei": "Com Nuclei",
+      "hasKev": "No KEV (CISA)",
       "ecosystem": "Ecossistema",
       "ecosystemAll": "Todos",
       "popDownloads": "Downloads",
@@ -235,6 +239,13 @@
       "hasExploit": "Exploit",
       "hasCommitFix": "Fix Disponível",
       "hasNuclei": "Nuclei",
+      "inKev": "KEV (CISA)",
+      "kev": "Catálogo KEV (CISA)",
+      "kevDateAdded": "Adicionado ao KEV",
+      "kevDueDate": "Prazo de correção",
+      "kevRansomware": "Ransomware",
+      "kevRansomwareYes": "Sim — usado em ransomware",
+      "kevRansomwareNo": "Não confirmado",
       "published": "Publicado",
       "updated": "Atualizado",
       "cvssScores": "Scores CVSS",

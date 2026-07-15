@@ -10,6 +10,7 @@ export interface DashboardStats {
   newCriticalCVEs: number;
   newWithExploit: number;
   newWithFix: number;
+  newInKev: number;
 }
 
 export interface SeverityDistribution {
@@ -60,7 +61,8 @@ export function useDashboardStats() {
         newCVEs: 0,
         newCriticalCVEs: 0,
         newWithExploit: 0,
-        newWithFix: 0
+        newWithFix: 0,
+        newInKev: 0
       };
     }
 
@@ -73,6 +75,7 @@ export function useDashboardStats() {
       newWithExploit: number;
       newWithFix: number;
       newCriticalCVEs: number;
+      newInKev: number;
     }>(
       `
       SELECT 
@@ -82,16 +85,18 @@ export function useDashboardStats() {
         (SELECT COUNT(*) FROM cves c 
          WHERE c.date_published >= ? 
          AND EXISTS (SELECT 1 FROM cve_scores cs WHERE cs.cve_id = c.cve_id AND cs.score >= 9.0)
-        ) as newCriticalCVEs
+        ) as newCriticalCVEs,
+        (SELECT COUNT(*) FROM cves WHERE date_published >= ? AND in_kev = 1) as newInKev
     `,
-      [dateStr, dateStr, dateStr, dateStr]
+      [dateStr, dateStr, dateStr, dateStr, dateStr]
     );
 
     return {
       newCVEs: result[0]?.newCVEs ?? 0,
       newCriticalCVEs: result[0]?.newCriticalCVEs ?? 0,
       newWithExploit: result[0]?.newWithExploit ?? 0,
-      newWithFix: result[0]?.newWithFix ?? 0
+      newWithFix: result[0]?.newWithFix ?? 0,
+      newInKev: result[0]?.newInKev ?? 0
     };
   }, [isReady, executeQuery]);
 
