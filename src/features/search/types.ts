@@ -15,6 +15,7 @@ export interface CVE {
   kev_date_added: string | null;
   kev_due_date: string | null;
   kev_ransomware: boolean;
+  missing_nuclei_template: boolean;
   list_exploit: string | null; // JSON string
   list_commit: string | null; // JSON string
   list_references: string | null; // JSON string
@@ -135,6 +136,7 @@ export interface SearchFilters {
   hasCommitFix: boolean | null;
   hasNuclei: boolean | null;
   hasKev: boolean | null;
+  hasMissingTemplate: boolean | null;
   languages: string[];
   starsMin: number | null;
   starsMax: number | null;
@@ -161,6 +163,7 @@ export const defaultFilters: SearchFilters = {
   hasCommitFix: null,
   hasNuclei: null,
   hasKev: null,
+  hasMissingTemplate: null,
   languages: [],
   starsMin: null,
   starsMax: null,
@@ -205,6 +208,7 @@ export interface CVESearchResult {
   in_kev: boolean;
   kev_date_added: string | null;
   kev_ransomware: boolean;
+  missing_nuclei_template: boolean;
   max_score: number | null;
   severity: Severity;
   cwe_list: string | null;
