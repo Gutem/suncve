@@ -352,6 +352,10 @@ export function useRepositorySearch() {
         exists_exploit: number;
         exists_commit: number;
         exists_nuclei: number;
+        in_kev: number;
+        kev_date_added: string | null;
+        kev_ransomware: number;
+        missing_nuclei_template: number;
         max_score: number | null;
         relation_type: string | null;
       }>(
@@ -365,6 +369,10 @@ export function useRepositorySearch() {
           c.exists_exploit,
           c.exists_commit,
           c.exists_nuclei,
+          c.in_kev,
+          c.kev_date_added,
+          c.kev_ransomware,
+          c.missing_nuclei_template,
           (SELECT MAX(score) FROM cve_scores WHERE cve_id = c.cve_id) as max_score,
           cr.relation_type
         FROM cve_repositories cr
@@ -386,6 +394,10 @@ export function useRepositorySearch() {
         exists_exploit: Boolean(cve.exists_exploit),
         exists_commit: Boolean(cve.exists_commit),
         exists_nuclei: Boolean(cve.exists_nuclei),
+        in_kev: Boolean(cve.in_kev),
+        kev_date_added: cve.kev_date_added,
+        kev_ransomware: Boolean(cve.kev_ransomware),
+        missing_nuclei_template: Boolean(cve.missing_nuclei_template),
         max_score: cve.max_score,
         severity: getSeverityFromScore(cve.max_score ?? 0),
         cwe_list: null,

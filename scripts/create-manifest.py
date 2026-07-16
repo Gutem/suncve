@@ -15,6 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+
 try:
     import requests
     from requests.adapters import HTTPAdapter
@@ -33,6 +34,7 @@ try:
     from bs4 import BeautifulSoup
 except ModuleNotFoundError:
     BeautifulSoup = None  # type: ignore[assignment]
+
 
 def _build_http_session() -> requests.Session:
     if requests is None or HTTPAdapter is None:
@@ -55,8 +57,10 @@ def _build_http_session() -> requests.Session:
     session.mount("http://", adapter)
     return session
 
+
 HTTP_SESSION = _build_http_session()
 REQUEST_EXCEPTION = requests.RequestException if requests else Exception
+
 
 def _is_ip_public(ip_str: str) -> bool:
     try:
@@ -71,6 +75,7 @@ def _is_ip_public(ip_str: str) -> bool:
         or ip.is_reserved
         or ip.is_unspecified
     )
+
 
 @lru_cache(maxsize=1024)
 def _is_host_public(host: str) -> bool:
@@ -95,6 +100,7 @@ def _is_host_public(host: str) -> bool:
     # Some domains may have mixed DNS records and shouldn't be blocked outright.
     return any(_is_ip_public(ip) for ip in ips)
 
+
 def validate_external_url(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
@@ -105,12 +111,14 @@ def validate_external_url(url: str) -> None:
     if not _is_host_public(host):
         raise ValueError(f"Blocked non-public host: {host}")
 
+
 def http_get(url: str, **kwargs):
     if HTTP_SESSION is None:
         raise RuntimeError("Missing dependency: requests")
     validate_external_url(url)
     timeout = kwargs.pop("timeout", 30)
     return HTTP_SESSION.get(url, timeout=timeout, **kwargs)
+
 
 def http_post(url: str, **kwargs):
     if HTTP_SESSION is None:
@@ -119,6 +127,7 @@ def http_post(url: str, **kwargs):
     timeout = kwargs.pop("timeout", 30)
     return HTTP_SESSION.post(url, timeout=timeout, **kwargs)
 
+
 def _github_api_headers(token: str | None = None) -> dict:
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "suncve-bot"}
     token = token or os.environ.get("GITHUB_TOKEN")
@@ -126,7 +135,10 @@ def _github_api_headers(token: str | None = None) -> dict:
         headers["Authorization"] = f"Bearer {token}"
     return headers
 
-def github_branch_head_sha(repo: str, branch: str, token: str | None = None) -> str | None:
+
+def github_branch_head_sha(
+    repo: str, branch: str, token: str | None = None
+) -> str | None:
     """Retorna o SHA do commit HEAD de um branch via REST API."""
     url = f"https://api.github.com/repos/{repo}/commits/{branch}"
     try:
@@ -137,7 +149,10 @@ def github_branch_head_sha(repo: str, branch: str, token: str | None = None) -> 
         print(f"[WARN] Failed to resolve HEAD sha for {repo}@{branch}: {e}")
         return None
 
-def github_compare_files(repo: str, base_sha: str, head: str, token: str | None = None) -> list[str] | None:
+
+def github_compare_files(
+    repo: str, base_sha: str, head: str, token: str | None = None
+) -> list[str] | None:
     """
     Lista os arquivos alterados (added/modified/renamed) entre base_sha e head.
 
@@ -164,6 +179,7 @@ def github_compare_files(repo: str, base_sha: str, head: str, token: str | None 
         if f.get("status") in ("added", "modified", "renamed")
     ]
 
+
 def download_to(url: str, dest_path: Path, headers: dict | None = None) -> Path:
     """Baixa uma URL para dest_path em streaming (sem progress)."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,6 +191,7 @@ def download_to(url: str, dest_path: Path, headers: dict | None = None) -> Path:
                     f.write(chunk)
     return dest_path
 
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
@@ -182,12 +199,17 @@ def _sha256_file(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+
 def _gzip_file(src: Path, dst: Path) -> None:
     import gzip
+
     with src.open("rb") as f_src, dst.open("wb") as f_dst:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=f_dst, compresslevel=9, mtime=0) as gz:
+        with gzip.GzipFile(
+            filename="", mode="wb", fileobj=f_dst, compresslevel=9, mtime=0
+        ) as gz:
             for chunk in iter(lambda: f_src.read(1024 * 1024), b""):
                 gz.write(chunk)
+
 
 def generate_db_manifest(
     db_dir: Path,
@@ -242,6 +264,7 @@ def generate_db_manifest(
     print(f"[INFO] Manifest generated at: {target}")
     return target
 
+
 def calculateScoreCVSS(vector: str, version: str) -> float:
     if CVSS2 is None or CVSS3 is None or CVSS4 is None:
         return 0.0
@@ -266,10 +289,11 @@ def calculateScoreCVSS(vector: str, version: str) -> float:
         print(f"[WARN] Invalid CVSS vector {vector!r}: {e}")
         return 0.0
 
+
 class GitHubExtractor:
     """
     Extrai fullpath de repositórios do GitHub a partir de URLs de referências.
-    
+
     Endpoints relevantes (alta chance de ser o repositório da CVE):
     - /releases/tag/ ou /releases/
     - /issues/
@@ -277,7 +301,7 @@ class GitHubExtractor:
     - /commit/ ou /commits/
     - /security/advisories/
     """
-    
+
     # Padrões de URL que indicam forte relação com o repositório
     RELEVANT_PATTERNS = [
         "/releases/",
@@ -287,63 +311,65 @@ class GitHubExtractor:
         "/commits/",
         "/security/advisories/",
     ]
-    
+
     @staticmethod
     def extractFullpath(url: str) -> str | None:
         """
         Extrai o fullpath (owner/repo) de uma URL do GitHub.
-        
+
         Args:
             url: URL do GitHub
-            
+
         Returns:
             fullpath em minúsculo (ex: 'btcpayserver/btcpayserver') ou None
         """
         if "github.com" not in url.lower():
             return None
-        
+
         # Verifica se é um padrão relevante
         url_lower = url.lower()
-        is_relevant = any(pattern in url_lower for pattern in GitHubExtractor.RELEVANT_PATTERNS)
-        
+        is_relevant = any(
+            pattern in url_lower for pattern in GitHubExtractor.RELEVANT_PATTERNS
+        )
+
         if not is_relevant:
             return None
-        
+
         # Extrai owner/repo da URL
         # Padrão: https://github.com/OWNER/REPO/...
-        match = re.search(r'github\.com/([^/]+)/([^/]+)', url, re.IGNORECASE)
+        match = re.search(r"github\.com/([^/]+)/([^/]+)", url, re.IGNORECASE)
         if not match:
             return None
-        
+
         owner = match.group(1).lower()
         repo = match.group(2).lower()
-        
+
         # Remove .git se existir no final do repo
-        if repo.endswith('.git'):
+        if repo.endswith(".git"):
             repo = repo[:-4]
-        
+
         fullpath = f"{owner}/{repo}"
         return fullpath
-    
+
     @staticmethod
     def extractFromReferences(references: list) -> list[str]:
         """
         Extrai fullpaths únicos de uma lista de referências.
-        
+
         Args:
             references: lista de dicts com 'url'
-            
+
         Returns:
             lista de fullpaths únicos
         """
         fullpaths = set()
-        
+
         for ref in references:
             url = ref.get("url", "")
             fullpath = GitHubExtractor.extractFullpath(url)
             if fullpath:
                 fullpaths.add(fullpath)
-        
+
         return list(fullpaths)
 
 
@@ -387,12 +413,16 @@ class WordPressExtractor:
             return None
 
         # 1) /browser/<slug>/...
-        match = re.search(r"plugins\.trac\.wordpress\.org/browser/([^/?#]+)", url, re.IGNORECASE)
+        match = re.search(
+            r"plugins\.trac\.wordpress\.org/browser/([^/?#]+)", url, re.IGNORECASE
+        )
         if match:
             return WordPressExtractor._cleanSlug(match.group(1))
 
         # 2) /changeset/<num>/<slug>
-        match = re.search(r"plugins\.trac\.wordpress\.org/changeset/\d+/([^/?#]+)", url, re.IGNORECASE)
+        match = re.search(
+            r"plugins\.trac\.wordpress\.org/changeset/\d+/([^/?#]+)", url, re.IGNORECASE
+        )
         if match:
             return WordPressExtractor._cleanSlug(match.group(1))
 
@@ -424,9 +454,9 @@ class GitHubRepositoryVerifier:
     """
     Verifica repositórios do GitHub via GraphQL API e extrai metadados.
     """
-    
+
     GRAPHQL_URL = "https://api.github.com/graphql"
-    
+
     GRAPHQL_QUERY = """
     query ($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
@@ -456,37 +486,37 @@ class GitHubRepositoryVerifier:
         }
     }
     """
-    
+
     def __init__(self, token: str):
         """
         Inicializa o verificador com o token do GitHub.
-        
+
         Args:
             token: GitHub Personal Access Token (PAT)
         """
         self.token = token
         self.headers = {
             "Authorization": f"bearer {token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-    
+
     def _calculateLanguagePercentages(self, languages_edges: list) -> dict:
         """
         Calcula a porcentagem de cada linguagem baseado no tamanho em bytes.
-        
+
         Args:
             languages_edges: lista de edges com size e node.name
-            
+
         Returns:
             dict com {linguagem: porcentagem} ex: {"Python": 60, "TypeScript": 30, "Shell": 10}
         """
         if not languages_edges:
             return {}
-        
+
         total_size = sum(edge["size"] for edge in languages_edges)
         if total_size == 0:
             return {}
-        
+
         percentages = {}
         for edge in languages_edges:
             lang_name = edge["node"]["name"]
@@ -494,20 +524,20 @@ class GitHubRepositoryVerifier:
 
             if percentage > 0:  # Ignora linguagens com menos de 1%
                 percentages[lang_name] = percentage
-        
+
         return percentages
-    
+
     # Configurações de retry para rate limit
     RATE_LIMIT_MAX_RETRIES = 3
     RATE_LIMIT_DEFAULT_DELAY = 300  # 5 minutos padrão
-    
+
     def verifyRepository(self, fullpath: str) -> dict | None | bool:
         """
         Verifica um repositório via GraphQL API.
-        
+
         Args:
             fullpath: caminho completo (owner/repo)
-            
+
         Returns:
             dict: dados do repositório se encontrado
             None: se repositório não existe
@@ -517,44 +547,51 @@ class GitHubRepositoryVerifier:
         if len(parts) != 2:
             print(f"[WARN] Invalid fullpath format: {fullpath}")
             return None
-        
+
         owner, name = parts
-        
+
         payload = {
             "query": self.GRAPHQL_QUERY,
-            "variables": {"owner": owner, "name": name}
+            "variables": {"owner": owner, "name": name},
         }
-        
+
         for attempt in range(self.RATE_LIMIT_MAX_RETRIES + 1):
             try:
                 response = http_post(
-                    self.GRAPHQL_URL,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=30
+                    self.GRAPHQL_URL, headers=self.headers, json=payload, timeout=30
                 )
-                
+
                 # Tratamento de Rate Limit (429)
                 if response.status_code == 429:
                     if attempt < self.RATE_LIMIT_MAX_RETRIES:
                         # Pega o tempo de espera do header ou usa o padrão
-                        retry_after = int(response.headers.get("Retry-After", self.RATE_LIMIT_DEFAULT_DELAY))
-                        print(f"[WARN] Rate limited (429). Waiting {retry_after}s before retry {attempt + 1}/{self.RATE_LIMIT_MAX_RETRIES}...")
+                        retry_after = int(
+                            response.headers.get(
+                                "Retry-After", self.RATE_LIMIT_DEFAULT_DELAY
+                            )
+                        )
+                        print(
+                            f"[WARN] Rate limited (429). Waiting {retry_after}s before retry {attempt + 1}/{self.RATE_LIMIT_MAX_RETRIES}..."
+                        )
                         time.sleep(retry_after)
                         continue
                     else:
-                        print(f"[WARN] Rate limit exceeded after {self.RATE_LIMIT_MAX_RETRIES} retries for {fullpath}. Skipping...")
-                        return False  # Indica para pular (não marcar como não encontrado)
-                
+                        print(
+                            f"[WARN] Rate limit exceeded after {self.RATE_LIMIT_MAX_RETRIES} retries for {fullpath}. Skipping..."
+                        )
+                        return (
+                            False  # Indica para pular (não marcar como não encontrado)
+                        )
+
                 # Tratamento de outros erros HTTP
                 if response.status_code == 404:
                     print(f"[INFO] Repository not found (404): {fullpath}")
                     return None
-                
+
                 response.raise_for_status()
-                
+
                 data = response.json()
-                
+
                 # Verifica se há erros na resposta GraphQL
                 if "errors" in data:
                     error_msg = data["errors"][0].get("message", "Unknown error")
@@ -564,32 +601,40 @@ class GitHubRepositoryVerifier:
                     # Rate limit também pode vir como erro GraphQL
                     if "rate limit" in error_msg.lower():
                         if attempt < self.RATE_LIMIT_MAX_RETRIES:
-                            print(f"[WARN] GraphQL rate limit. Waiting {self.RATE_LIMIT_DEFAULT_DELAY}s before retry {attempt + 1}/{self.RATE_LIMIT_MAX_RETRIES}...")
+                            print(
+                                f"[WARN] GraphQL rate limit. Waiting {self.RATE_LIMIT_DEFAULT_DELAY}s before retry {attempt + 1}/{self.RATE_LIMIT_MAX_RETRIES}..."
+                            )
                             time.sleep(self.RATE_LIMIT_DEFAULT_DELAY)
                             continue
                         else:
-                            print(f"[WARN] Rate limit exceeded after {self.RATE_LIMIT_MAX_RETRIES} retries for {fullpath}. Skipping...")
+                            print(
+                                f"[WARN] Rate limit exceeded after {self.RATE_LIMIT_MAX_RETRIES} retries for {fullpath}. Skipping..."
+                            )
                             return False
                     print(f"[WARN] GraphQL error for {fullpath}: {error_msg}")
                     return None
-                
+
                 repo = data.get("data", {}).get("repository")
                 if not repo:
                     print(f"[INFO] Repository not found: {fullpath}")
                     return None
-                
+
                 # Extrai linguagens com porcentagens
                 languages_edges = repo.get("languages", {}).get("edges", [])
-                languages_percentages = self._calculateLanguagePercentages(languages_edges)
-                
+                languages_percentages = self._calculateLanguagePercentages(
+                    languages_edges
+                )
+
                 # Extrai topics/tags
                 topics_nodes = repo.get("repositoryTopics", {}).get("nodes", [])
-                tags = [node["topic"]["name"] for node in topics_nodes if node.get("topic")]
-                
+                tags = [
+                    node["topic"]["name"] for node in topics_nodes if node.get("topic")
+                ]
+
                 # Linguagem principal
                 primary_lang = repo.get("primaryLanguage")
                 language_main = primary_lang["name"] if primary_lang else None
-                
+
                 return {
                     "is_exists": True,
                     "name": repo.get("name"),
@@ -599,26 +644,26 @@ class GitHubRepositoryVerifier:
                     "languages": json.dumps(languages_percentages),
                     "tags": json.dumps(tags),
                     "created_repository": repo.get("createdAt"),
-                    "updated_repository": repo.get("updatedAt")
+                    "updated_repository": repo.get("updatedAt"),
                 }
-                
+
             except REQUEST_EXCEPTION as e:
                 print(f"[WARN] Failed to verify repository {fullpath}: {e}")
                 return None
             except (KeyError, json.JSONDecodeError) as e:
                 print(f"[WARN] Failed to parse response for {fullpath}: {e}")
                 return None
-        
+
         return False  # Fallback: se sair do loop sem retornar, pular
-    
+
     def run(self, db: "databaseSQLite", batch_size: int = 100) -> int:
         """
         Verifica todos os repositórios pendentes no banco.
-        
+
         Args:
             db: instância do banco de dados
             batch_size: quantidade de repositórios por batch
-            
+
         Returns:
             int: quantidade total de repositórios verificados
         """
@@ -627,27 +672,29 @@ class GitHubRepositoryVerifier:
         total_not_found = 0
         total_skipped = 0
         rate_limited = False
-        
+
         while True:
             pending = db.getPendingRepositories(limit=batch_size)
             if not pending:
                 break
-            
+
             for fullpath in pending:
                 print(f"[INFO] Verifying repository: {fullpath}")
-                
+
                 result = self.verifyRepository(fullpath)
-                
+
                 # result pode ser:
                 # - dict: repositório encontrado
                 # - None: repositório não existe
                 # - False: rate limited, pular (manter pendente)
-                
+
                 if result is False:
                     # Rate limited - parar execução para evitar loop
                     total_skipped += 1
                     rate_limited = True
-                    print(f"[WARN] Rate limited! Stopping execution. Run again later to continue.")
+                    print(
+                        f"[WARN] Rate limited! Stopping execution. Run again later to continue."
+                    )
                     break
                 elif result:
                     # Repositório encontrado
@@ -659,26 +706,34 @@ class GitHubRepositoryVerifier:
                     # Repositório não encontrado (None)
                     db.markRepositoryNotFound(fullpath)
                     total_not_found += 1
-                
+
                 total_verified += 1
-                
+
                 # Commit a cada 10 repositórios
                 if total_verified % 10 == 0:
                     db.conn.commit()
-                    print(f"[INFO] Progress: {total_verified} verified ({total_found} found, {total_not_found} not found)")
-            
+                    print(
+                        f"[INFO] Progress: {total_verified} verified ({total_found} found, {total_not_found} not found)"
+                    )
+
             # Se foi rate limited, sai do loop principal
             if rate_limited:
                 break
-        
+
         db.conn.commit()
-        
+
         if rate_limited:
-            print(f"[WARN] Execution stopped due to rate limit. Verified {total_verified} repos ({total_found} found, {total_not_found} not found)")
-            print(f"[INFO] Run the command again later to continue from where it stopped.")
+            print(
+                f"[WARN] Execution stopped due to rate limit. Verified {total_verified} repos ({total_found} found, {total_not_found} not found)"
+            )
+            print(
+                f"[INFO] Run the command again later to continue from where it stopped."
+            )
         else:
-            print(f"[INFO] Repository verification complete: {total_verified} total ({total_found} found, {total_not_found} not found)")
-        
+            print(
+                f"[INFO] Repository verification complete: {total_verified} total ({total_found} found, {total_not_found} not found)"
+            )
+
         return total_verified
 
 
@@ -688,7 +743,7 @@ class databaseSQLite:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
         self.cursor = self.conn.cursor()
-    
+
     def createTable(self) -> None:
         # Tabela principal de CVEs
         self.cursor.execute("""
@@ -726,10 +781,12 @@ class databaseSQLite:
             downloads INTEGER
         )
         """)
-        
+
         # Migração: adiciona coluna is_exists se não existir (para bancos antigos)
         try:
-            self.cursor.execute("ALTER TABLE repositories ADD COLUMN is_exists BOOLEAN DEFAULT NULL")
+            self.cursor.execute(
+                "ALTER TABLE repositories ADD COLUMN is_exists BOOLEAN DEFAULT NULL"
+            )
         except sqlite3.OperationalError:
             pass  # Coluna já existe
 
@@ -791,6 +848,27 @@ class databaseSQLite:
             except sqlite3.OperationalError:
                 pass  # Coluna já existe
 
+        # Migração: campos KEV (CISA Known Exploited Vulnerabilities)
+        for column_ddl in (
+            "ALTER TABLE cves ADD COLUMN in_kev BOOLEAN DEFAULT 0",
+            "ALTER TABLE cves ADD COLUMN kev_date_added TEXT",
+            "ALTER TABLE cves ADD COLUMN kev_due_date TEXT",
+            "ALTER TABLE cves ADD COLUMN kev_ransomware BOOLEAN DEFAULT 0",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
+
+        # Migração: missing template indicator (edoardottt/missing-cve-nuclei-templates)
+        for column_ddl in (
+            "ALTER TABLE cves ADD COLUMN missing_nuclei_template BOOLEAN DEFAULT 0",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
+
         # 2. Tabela de Scores (1 CVE -> N Scores)
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS cve_scores (
@@ -823,7 +901,7 @@ class databaseSQLite:
             FOREIGN KEY (cve_id) REFERENCES cves (cve_id) ON DELETE CASCADE
         )
         """)
-        
+
         # 5. Tabela de Relação CVE <-> Repositório (N:N, OPCIONAL)
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS cve_repositories (
@@ -835,7 +913,7 @@ class databaseSQLite:
             FOREIGN KEY (repository_fullpath) REFERENCES repositories (fullpath) ON DELETE CASCADE
         )
         """)
-        
+
         # 6. Tabela de Cache de URLs verificadas
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS url_cache (
@@ -890,23 +968,47 @@ class databaseSQLite:
                     HAVING SUM(CASE WHEN relation_type != 'poc' THEN 1 ELSE 0 END) = 0
                 )
             """)
-            self.cursor.execute("DELETE FROM cve_repositories WHERE relation_type = 'poc'")
+            self.cursor.execute(
+                "DELETE FROM cve_repositories WHERE relation_type = 'poc'"
+            )
         except sqlite3.OperationalError:
             pass
 
         # --- ÍNDICES PARA BUSCA ULTRA RÁPIDA ---
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_score_val ON cve_scores(score)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_cwe_lookup ON cve_cwes(cwe_id)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_product_lookup ON cve_affected(product)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_vendor_lookup ON cve_affected(vendor)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_cve ON cve_repositories(cve_id)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_fullpath ON cve_repositories(repository_fullpath)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_ecosystem ON repositories(ecosystem)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_repo_downloads ON repositories(downloads)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_cves_exists_nuclei ON cves(exists_nuclei)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_npm ON repo_manifests(npm_name)")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_composer ON repo_manifests(composer_name)")
-        
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_score_val ON cve_scores(score)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cwe_lookup ON cve_cwes(cwe_id)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_product_lookup ON cve_affected(product)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_vendor_lookup ON cve_affected(vendor)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_cve ON cve_repositories(cve_id)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_fullpath ON cve_repositories(repository_fullpath)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_ecosystem ON repositories(ecosystem)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_repo_downloads ON repositories(downloads)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cves_exists_nuclei ON cves(exists_nuclei)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_manifest_npm ON repo_manifests(npm_name)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_manifest_composer ON repo_manifests(composer_name)"
+        )
+
         """
         EXEMPLOS DE QUERY CONSULTA:
         
@@ -964,22 +1066,25 @@ class databaseSQLite:
             GROUP BY r.languageMain
             ORDER BY total DESC;
         """
-        
+
         self.conn.commit()
-    
+
     def getSourceInfo(self, source_name: str) -> dict | None:
         """
         Consulta a tabela sources para verificar se já existe base_release_file.
-        
+
         Returns:
             dict com os dados da source ou None se não existir
         """
-        self.cursor.execute("""
+        self.cursor.execute(
+            """
         SELECT source_name, last_verified, last_updated, last_release_file, base_release_file
         FROM sources
         WHERE source_name = ?
-        """, (source_name,))
-        
+        """,
+            (source_name,),
+        )
+
         row = self.cursor.fetchone()
         if row:
             return {
@@ -987,15 +1092,21 @@ class databaseSQLite:
                 "last_verified": row[1],
                 "last_updated": row[2],
                 "last_release_file": row[3],
-                "base_release_file": row[4]
+                "base_release_file": row[4],
             }
         return None
-    
-    def updateSource(self, source_name: str, last_verified: str, last_updated: str, 
-                     last_release_file: str, base_release_file: str = None) -> None:
+
+    def updateSource(
+        self,
+        source_name: str,
+        last_verified: str,
+        last_updated: str,
+        last_release_file: str,
+        base_release_file: str = None,
+    ) -> None:
         """
         Insere ou atualiza registro na tabela sources.
-        
+
         Args:
             source_name: nome da fonte (ex: "cvelistV5")
             last_verified: timestamp de início do script
@@ -1005,37 +1116,58 @@ class databaseSQLite:
         """
         # Verifica se já existe
         existing = self.getSourceInfo(source_name)
-        
+
         if existing:
             # Se já existe e não passou base_release_file, mantém o existente
             if base_release_file is None:
                 base_release_file = existing.get("base_release_file")
-            
-            self.cursor.execute("""
+
+            self.cursor.execute(
+                """
             UPDATE sources 
             SET last_verified = ?, last_updated = ?, last_release_file = ?, base_release_file = ?
             WHERE source_name = ?
-            """, (last_verified, last_updated, last_release_file, base_release_file, source_name))
+            """,
+                (
+                    last_verified,
+                    last_updated,
+                    last_release_file,
+                    base_release_file,
+                    source_name,
+                ),
+            )
         else:
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             INSERT INTO sources (source_name, last_verified, last_updated, last_release_file, base_release_file)
             VALUES (?, ?, ?, ?, ?)
-            """, (source_name, last_verified, last_updated, last_release_file, base_release_file))
-        
+            """,
+                (
+                    source_name,
+                    last_verified,
+                    last_updated,
+                    last_release_file,
+                    base_release_file,
+                ),
+            )
+
         self.conn.commit()
-    
+
     def insertRepository(self, fullpath: str) -> None:
         """
         Insere um repositório na tabela repositories (apenas fullpath por enquanto).
-        
+
         Args:
             fullpath: caminho completo do repositório (ex: 'owner/repo')
         """
         try:
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             INSERT OR IGNORE INTO repositories (fullpath)
             VALUES (?)
-            """, (fullpath,))
+            """,
+                (fullpath,),
+            )
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert repository {fullpath}: {e}")
 
@@ -1048,10 +1180,13 @@ class databaseSQLite:
         comando 'wordpress'. Não sobrescreve dados existentes.
         """
         try:
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             INSERT OR IGNORE INTO repositories (fullpath, is_exists, ecosystem, name)
             VALUES (?, 1, 'wordpress', ?)
-            """, (WordPressExtractor.fullpathFromSlug(slug), slug))
+            """,
+                (WordPressExtractor.fullpathFromSlug(slug), slug),
+            )
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert wordpress plugin {slug}: {e}")
 
@@ -1108,9 +1243,14 @@ class databaseSQLite:
             for slug in slugs:
                 self.insertWordpressRepository(slug)
                 fullpath = WordPressExtractor.fullpathFromSlug(slug)
-                relation = "fix_commit" if (
-                    "trac.wordpress.org/changeset" in commit_blob and slug in commit_blob
-                ) else "referenced"
+                relation = (
+                    "fix_commit"
+                    if (
+                        "trac.wordpress.org/changeset" in commit_blob
+                        and slug in commit_blob
+                    )
+                    else "referenced"
+                )
                 self.cursor.execute(
                     "INSERT OR IGNORE INTO cve_repositories "
                     "(cve_id, repository_fullpath, relation_type) VALUES (?, ?, ?)",
@@ -1128,18 +1268,21 @@ class databaseSQLite:
     def getPendingRepositories(self, limit: int = 100) -> list[str]:
         """
         Retorna lista de repositórios que ainda não foram verificados (is_exists IS NULL).
-        
+
         Args:
             limit: quantidade máxima de repositórios a retornar
-            
+
         Returns:
             Lista de fullpaths de repositórios pendentes
         """
-        self.cursor.execute("""
+        self.cursor.execute(
+            """
         SELECT fullpath FROM repositories 
         WHERE is_exists IS NULL 
         LIMIT ?
-        """, (limit,))
+        """,
+            (limit,),
+        )
         return [row[0] for row in self.cursor.fetchall()]
 
     def countPendingRepositories(self) -> int:
@@ -1153,7 +1296,7 @@ class databaseSQLite:
     def updateRepository(self, fullpath: str, data: dict) -> None:
         """
         Atualiza os dados de um repositório verificado.
-        
+
         Args:
             fullpath: caminho completo do repositório (ex: 'owner/repo')
             data: dicionário com os dados do repositório:
@@ -1168,7 +1311,8 @@ class databaseSQLite:
                 - updated_repository: str - data de atualização
         """
         try:
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             UPDATE repositories SET
                 is_exists = ?,
                 name = ?,
@@ -1180,70 +1324,81 @@ class databaseSQLite:
                 created_repository = ?,
                 updated_repository = ?
             WHERE fullpath = ?
-            """, (
-                data.get("is_exists"),
-                data.get("name"),
-                data.get("size"),
-                data.get("stars"),
-                data.get("languageMain"),
-                data.get("languages"),
-                data.get("tags"),
-                data.get("created_repository"),
-                data.get("updated_repository"),
-                fullpath
-            ))
+            """,
+                (
+                    data.get("is_exists"),
+                    data.get("name"),
+                    data.get("size"),
+                    data.get("stars"),
+                    data.get("languageMain"),
+                    data.get("languages"),
+                    data.get("tags"),
+                    data.get("created_repository"),
+                    data.get("updated_repository"),
+                    fullpath,
+                ),
+            )
         except sqlite3.Error as e:
             print(f"[WARN] Failed to update repository {fullpath}: {e}")
 
     def markRepositoryNotFound(self, fullpath: str) -> None:
         """
         Marca um repositório como não encontrado (is_exists = False).
-        
+
         Args:
             fullpath: caminho completo do repositório
         """
         try:
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             UPDATE repositories SET is_exists = 0 WHERE fullpath = ?
-            """, (fullpath,))
+            """,
+                (fullpath,),
+            )
         except sqlite3.Error as e:
             print(f"[WARN] Failed to mark repository {fullpath} as not found: {e}")
 
     def getRepositoryFixCVEs(self, fullpath: str) -> list[str]:
         """
         Retorna lista de CVE IDs que têm fix_commit neste repositório.
-        
+
         Args:
             fullpath: caminho completo do repositório
-            
+
         Returns:
             Lista de cve_ids com relation_type = 'fix_commit'
         """
-        self.cursor.execute("""
+        self.cursor.execute(
+            """
         SELECT cve_id FROM cve_repositories 
         WHERE repository_fullpath = ? AND relation_type = 'fix_commit'
-        """, (fullpath,))
+        """,
+            (fullpath,),
+        )
         return [row[0] for row in self.cursor.fetchall()]
 
     def updateRepositoryCommitsFix(self, fullpath: str) -> None:
         """
         Atualiza commits_fix e commits_fix_count de um repositório
         baseado nas CVEs relacionadas com relation_type = 'fix_commit'.
-        
+
         Args:
             fullpath: caminho completo do repositório
         """
         cve_ids = self.getRepositoryFixCVEs(fullpath)
         commits_fix_json = json.dumps(cve_ids) if cve_ids else None
         commits_fix_count = len(cve_ids)
-        
+
         try:
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             UPDATE repositories SET 
                 commits_fix = ?,
                 commits_fix_count = ?
             WHERE fullpath = ?
-            """, (commits_fix_json, commits_fix_count, fullpath))
+            """,
+                (commits_fix_json, commits_fix_count, fullpath),
+            )
         except sqlite3.Error as e:
             print(f"[WARN] Failed to update commits_fix for {fullpath}: {e}")
 
@@ -1251,30 +1406,30 @@ class databaseSQLite:
         """
         Atualiza commits_fix e commits_fix_count de TODOS os repositórios.
         Útil para rodar após processar todas as CVEs.
-        
+
         Returns:
             int: quantidade de repositórios atualizados
         """
         # Pega todos os repositórios que existem
         self.cursor.execute("SELECT fullpath FROM repositories WHERE is_exists = 1")
         repos = [row[0] for row in self.cursor.fetchall()]
-        
+
         count = 0
         for fullpath in repos:
             self.updateRepositoryCommitsFix(fullpath)
             count += 1
-            
+
             if count % 100 == 0:
                 self.conn.commit()
                 print(f"[INFO] Updated commits_fix for {count} repositories...")
-        
+
         self.conn.commit()
         print(f"[INFO] Updated commits_fix for {count} repositories total")
         return count
 
     def _normalizeUrlForCache(self, url: str) -> str:
         """Remove fragmento (#section) da URL para evitar verificar o mesmo recurso múltiplas vezes."""
-        fragment_pos = url.find('#')
+        fragment_pos = url.find("#")
         return url[:fragment_pos] if fragment_pos != -1 else url
 
     def getUrlCache(self, url: str) -> bool | None:
@@ -1301,10 +1456,13 @@ class databaseSQLite:
             has_exploit: True se contém exploit, False caso contrário
         """
         url = self._normalizeUrlForCache(url)
-        self.cursor.execute("""
+        self.cursor.execute(
+            """
         INSERT OR REPLACE INTO url_cache (url, has_exploit, verified_at)
         VALUES (?, ?, ?)
-        """, (url, has_exploit, datetime.now(timezone.utc).isoformat()))
+        """,
+            (url, has_exploit, datetime.now(timezone.utc).isoformat()),
+        )
 
     def getNpmRepoFromCache(self, name: str) -> tuple[bool, str | None]:
         """
@@ -1315,7 +1473,9 @@ class databaseSQLite:
             verificado); cached=True com fullpath podendo ser None ("verificado,
             sem repo GitHub conhecido").
         """
-        self.cursor.execute("SELECT fullpath FROM npm_repo_cache WHERE name = ?", (name,))
+        self.cursor.execute(
+            "SELECT fullpath FROM npm_repo_cache WHERE name = ?", (name,)
+        )
         row = self.cursor.fetchone()
         if row is None:
             return False, None
@@ -1323,12 +1483,17 @@ class databaseSQLite:
 
     def setNpmRepoCache(self, name: str, fullpath: str | None) -> None:
         """Grava o repositório canônico (ou None) de um pacote npm no cache."""
-        self.cursor.execute("""
+        self.cursor.execute(
+            """
         INSERT OR REPLACE INTO npm_repo_cache (name, fullpath, checked_at)
         VALUES (?, ?, ?)
-        """, (name, fullpath, datetime.now(timezone.utc).isoformat()))
+        """,
+            (name, fullpath, datetime.now(timezone.utc).isoformat()),
+        )
 
-    def complementCVE(self, dataReferences: list, persist_repositories: bool = True) -> dict:
+    def complementCVE(
+        self, dataReferences: list, persist_repositories: bool = True
+    ) -> dict:
         """
         Processa referências de uma CVE e extrai dados complementares:
         - repository_fullpath: repositório do GitHub relacionado
@@ -1344,7 +1509,7 @@ class databaseSQLite:
             "exists_commit": False,
             "exists_exploit": False,
             "list_commit": [],
-            "list_exploit": []
+            "list_exploit": [],
         }
 
         # Extrai fullpaths de repositórios das referências
@@ -1398,13 +1563,15 @@ class databaseSQLite:
                     try:
                         result = findExploits().run(url_to_verify)
                     except Exception as e:
-                        print(f"[WARN] Exploit verification failed for {url_to_verify}: {e}")
+                        print(
+                            f"[WARN] Exploit verification failed for {url_to_verify}: {e}"
+                        )
                         result = False
                     self.setUrlCache(url, result)
                     if result:
                         complementData["exists_exploit"] = True
                         complementData["list_exploit"].append(url)
-        
+
         return complementData
 
     def insertCVE(self, data: dict, complement: dict | None = None) -> None:
@@ -1420,7 +1587,7 @@ class databaseSQLite:
             cve_id = data.get("cve_id")
             if not cve_id:
                 return
-            
+
             # Processa dados complementares (exploit, commit, repository)
             references = data.get("references", [])
             if complement is None:
@@ -1431,65 +1598,75 @@ class databaseSQLite:
                 for fullpath in complement.get("wordpress_fullpaths", []):
                     slug = fullpath.split("/")[-1]
                     self.insertWordpressRepository(slug)
-            
+
             # Converte para JSON
             references_json = json.dumps(references)
             list_exploit_json = json.dumps(complement["list_exploit"])
             list_commit_json = json.dumps(complement["list_commit"])
-            
+
             # Insert CVE principal com dados complementares
-            self.cursor.execute("""
+            self.cursor.execute(
+                """
             INSERT OR REPLACE INTO cves 
             (cve_id, state, date_published, date_updated, date_reserved, title, description,
              exists_exploit, exists_commit, list_exploit, list_commit, list_references)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                cve_id,
-                data.get("state"),
-                data.get("published"),
-                data.get("updated"),
-                data.get("reserved"),
-                data.get("title"),
-                data.get("description"),
-                complement["exists_exploit"],
-                complement["exists_commit"],
-                list_exploit_json,
-                list_commit_json,
-                references_json
-            ))
-            
+            """,
+                (
+                    cve_id,
+                    data.get("state"),
+                    data.get("published"),
+                    data.get("updated"),
+                    data.get("reserved"),
+                    data.get("title"),
+                    data.get("description"),
+                    complement["exists_exploit"],
+                    complement["exists_commit"],
+                    list_exploit_json,
+                    list_commit_json,
+                    references_json,
+                ),
+            )
+
             # Delete dados antigos das tabelas relacionadas (para UPDATE)
             self.cursor.execute("DELETE FROM cve_scores WHERE cve_id = ?", (cve_id,))
             self.cursor.execute("DELETE FROM cve_cwes WHERE cve_id = ?", (cve_id,))
             self.cursor.execute("DELETE FROM cve_affected WHERE cve_id = ?", (cve_id,))
-            self.cursor.execute("DELETE FROM cve_repositories WHERE cve_id = ?", (cve_id,))
-            
+            self.cursor.execute(
+                "DELETE FROM cve_repositories WHERE cve_id = ?", (cve_id,)
+            )
+
             # Insert CVSS scores
             for cvss in data.get("cvss", []):
-                self.cursor.execute("""
+                self.cursor.execute(
+                    """
                 INSERT INTO cve_scores (cve_id, version, score)
                 VALUES (?, ?, ?)
-                """, (
-                    cve_id,
-                    cvss.get("version"),
-                    cvss.get("score")
-                ))
-            
+                """,
+                    (cve_id, cvss.get("version"), cvss.get("score")),
+                )
+
             # Insert CWEs
             for cwe_id in data.get("cwe_ids", []):
                 if cwe_id:
-                    self.cursor.execute("""
+                    self.cursor.execute(
+                        """
                     INSERT OR IGNORE INTO cve_cwes (cve_id, cwe_id)
                     VALUES (?, ?)
-                    """, (cve_id, cwe_id))
-            
+                    """,
+                        (cve_id, cwe_id),
+                    )
+
             # Insert Affected Products
             for affected in data.get("affected", []):
-                self.cursor.execute("""
+                self.cursor.execute(
+                    """
                 INSERT OR IGNORE INTO cve_affected (cve_id, vendor, product)
                 VALUES (?, ?, ?)
-                """, (cve_id, affected.get("vendor"), affected.get("product")))
-            
+                """,
+                    (cve_id, affected.get("vendor"), affected.get("product")),
+                )
+
             # Insert relação CVE <-> Repositório (se existir)
             if complement["repository_fullpath"]:
                 # Determina o tipo de relação baseado nos dados
@@ -1497,23 +1674,34 @@ class databaseSQLite:
                 if complement["exists_commit"]:
                     relation_type = "fix_commit"
 
-                self.cursor.execute("""
+                self.cursor.execute(
+                    """
                 INSERT OR IGNORE INTO cve_repositories (cve_id, repository_fullpath, relation_type)
                 VALUES (?, ?, ?)
-                """, (cve_id, complement["repository_fullpath"], relation_type))
+                """,
+                    (cve_id, complement["repository_fullpath"], relation_type),
+                )
 
             # Insert relação CVE <-> Plugin WordPress (pode haver vários por CVE).
             # Usa 'fix_commit' quando há um changeset Trac do plugin em list_commit, senão 'referenced'.
             list_commit_blob = " ".join(complement.get("list_commit", []))
             for wp_fullpath in complement.get("wordpress_fullpaths", []):
                 slug = wp_fullpath.split("/")[-1]
-                wp_relation = "fix_commit" if (
-                    "trac.wordpress.org/changeset" in list_commit_blob.lower() and slug in list_commit_blob.lower()
-                ) else "referenced"
-                self.cursor.execute("""
+                wp_relation = (
+                    "fix_commit"
+                    if (
+                        "trac.wordpress.org/changeset" in list_commit_blob.lower()
+                        and slug in list_commit_blob.lower()
+                    )
+                    else "referenced"
+                )
+                self.cursor.execute(
+                    """
                 INSERT OR IGNORE INTO cve_repositories (cve_id, repository_fullpath, relation_type)
                 VALUES (?, ?, ?)
-                """, (cve_id, wp_fullpath, wp_relation))
+                """,
+                    (cve_id, wp_fullpath, wp_relation),
+                )
 
         except sqlite3.Error as e:
             print(f"[WARN] Failed to insert {cve_id}: {e}")
@@ -1525,15 +1713,24 @@ class databaseSQLite:
         """Extrai 'owner/repo' de qualquer URL do GitHub (inclusive raiz do repo)."""
         if not url or "github.com" not in url.lower():
             return None
-        match = re.search(r'github\.com/([^/\s]+)/([^/\s#?]+)', url, re.IGNORECASE)
+        match = re.search(r"github\.com/([^/\s]+)/([^/\s#?]+)", url, re.IGNORECASE)
         if not match:
             return None
         owner = match.group(1).lower()
         repo = match.group(2).lower()
         if repo.endswith(".git"):
             repo = repo[:-4]
-        if owner in ("sponsors", "orgs", "topics", "collections", "marketplace",
-                     "about", "settings", "advisories", "security"):
+        if owner in (
+            "sponsors",
+            "orgs",
+            "topics",
+            "collections",
+            "marketplace",
+            "about",
+            "settings",
+            "advisories",
+            "security",
+        ):
             return None
         return f"{owner}/{repo}"
 
@@ -1641,10 +1838,15 @@ class databaseSQLite:
             "SELECT repository_fullpath FROM cve_repositories WHERE cve_id = ?",
             (cve_id,),
         )
-        return [row[0] for row in self.cursor.fetchall()
-                if row[0] and row[0].count("/") == 1]
+        return [
+            row[0]
+            for row in self.cursor.fetchall()
+            if row[0] and row[0].count("/") == 1
+        ]
 
-    def resetScannedPackageEnrichment(self, ecosystem: str, missing_name_column: str | None = None) -> int:
+    def resetScannedPackageEnrichment(
+        self, ecosystem: str, missing_name_column: str | None = None
+    ) -> int:
         """
         Reverte para 'github' (limpando package_url/downloads) os repos JÁ VARRIDOS
         (presentes em repo_manifests) cujo ecossistema atual é `ecosystem` — removendo
@@ -1678,8 +1880,13 @@ class databaseSQLite:
         self.cursor.execute("SELECT 1 FROM cves WHERE cve_id = ?", (cve_id,))
         return self.cursor.fetchone() is not None
 
-    def linkRepository(self, cve_id: str, fullpath: str | None, relation_type: str,
-                       mark_exists: int | None = None) -> None:
+    def linkRepository(
+        self,
+        cve_id: str,
+        fullpath: str | None,
+        relation_type: str,
+        mark_exists: int | None = None,
+    ) -> None:
         """
         Registra um repositório e sua relação com o CVE.
 
@@ -1725,7 +1932,9 @@ class databaseSQLite:
             value = []
         return value if isinstance(value, list) else []
 
-    def enrichExploitUrls(self, cve_id: str, urls: list[str], relation_type: str = "poc") -> bool:
+    def enrichExploitUrls(
+        self, cve_id: str, urls: list[str], relation_type: str = "poc"
+    ) -> bool:
         """
         Mescla URLs de exploit/PoC no list_exploit de um CVE existente (dedup) e
         seta exists_exploit=1.
@@ -1754,7 +1963,9 @@ class databaseSQLite:
         # Só registramos a relação/repositório para papéis reais (ex.: referenced).
         if relation_type != "poc":
             for url in urls:
-                self.linkRepository(cve_id, self._fullpathFromUrl(url), relation_type, mark_exists=1)
+                self.linkRepository(
+                    cve_id, self._fullpathFromUrl(url), relation_type, mark_exists=1
+                )
         return added
 
     def mergeCommitUrls(self, cve_id: str, urls: list[str]) -> bool:
@@ -1802,7 +2013,9 @@ class databaseSQLite:
         )
         complement = self.complementCVE(to_process, persist_repositories=True)
         if complement["list_exploit"]:
-            self.enrichExploitUrls(cve_id, complement["list_exploit"], relation_type="referenced")
+            self.enrichExploitUrls(
+                cve_id, complement["list_exploit"], relation_type="referenced"
+            )
         if complement["list_commit"]:
             self.mergeCommitUrls(cve_id, complement["list_commit"])
         # Vincula os repositórios descobertos nas referências (commit => fix_commit)
@@ -1865,6 +2078,7 @@ class databaseSQLite:
             )
         return added
 
+
 class CVElistV5:
     # Paths centralizados - todos relativos ao root do projeto
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
@@ -1872,7 +2086,7 @@ class CVElistV5:
     DOWNLOAD_ZIP = DATA_DIR / "cvelistV5_all_CVEs.zip"
     EXTRACTED_FOLDER = DATA_DIR / "cves"
     SQLITE_DB = DATA_DIR / "source.sqlite"
-    
+
     def __init__(self):
         print(f"[DEBUG] Project root: {self.PROJECT_ROOT}")
         print(f"[DEBUG] Data directory: {self.DATA_DIR}")
@@ -1891,7 +2105,9 @@ class CVElistV5:
             return "delta"
         return None
 
-    def _extract_release_asset_urls(self, release_data: dict) -> tuple[str | None, str | None]:
+    def _extract_release_asset_urls(
+        self, release_data: dict
+    ) -> tuple[str | None, str | None]:
         all_url = None
         delta_url = None
         for asset in release_data.get("assets", []):
@@ -1961,11 +2177,11 @@ class CVElistV5:
             if y > next_year:
                 return y
         return years[-1]
-    
+
     def listReleases(self) -> dict:
         """
         Retorna metadados completos da release mais recente.
-        
+
         Returns:
             dict com:
             - all_cves_url: URL do zip completo
@@ -1976,14 +2192,18 @@ class CVElistV5:
         url = "https://api.github.com/repos/CVEProject/cvelistV5/releases/latest"
         response = http_get(url)
         response.raise_for_status()
-        
+
         release_data = response.json()
-        latest_all_url, latest_delta_url = self._extract_release_asset_urls(release_data)
+        latest_all_url, latest_delta_url = self._extract_release_asset_urls(
+            release_data
+        )
         result = {
             "all_cves_url": latest_all_url,
             "delta_cves_url": latest_delta_url,
             "created_at": release_data.get("created_at"),
-            "updated_at": release_data.get("published_at"),  # published_at é mais confiável
+            "updated_at": release_data.get(
+                "published_at"
+            ),  # published_at é mais confiável
         }
 
         # Fallback: em alguns snapshots o "latest" não traz ambos os pacotes.
@@ -1991,7 +2211,9 @@ class CVElistV5:
         if not result["all_cves_url"] or not result["delta_cves_url"]:
             page = 1
             per_page = 30
-            while page <= 3 and (not result["all_cves_url"] or not result["delta_cves_url"]):
+            while page <= 3 and (
+                not result["all_cves_url"] or not result["delta_cves_url"]
+            ):
                 page_url = (
                     f"https://api.github.com/repos/CVEProject/cvelistV5/releases"
                     f"?per_page={per_page}&page={page}"
@@ -2012,17 +2234,17 @@ class CVElistV5:
                 if len(releases) < per_page:
                     break
                 page += 1
-        
+
         return result
-    
+
     def getDeltasAfterRelease(self, last_release_file: str) -> list:
         """
         Retorna lista de deltas mais recentes que o last_release_file.
         Busca página por página e para assim que encontrar o último processado.
-        
+
         Args:
             last_release_file: URL do último arquivo processado
-            
+
         Returns:
             list de dicts com delta_url e published_at, ordenados do mais antigo ao mais recente
         """
@@ -2034,63 +2256,67 @@ class CVElistV5:
             parts = last_release_file.split("/download/")
             if len(parts) > 1:
                 last_tag = parts[1].split("/")[0]
-        
+
         print(f"[DEBUG] Last release tag: {last_tag}")
-        
+
         deltas_needed = []
         found_last = False
         page = 1
         per_page = 30  # Não precisa de muitos por página
-        
+
         # Busca página por página até encontrar o last_tag
         while not found_last:
             url = f"https://api.github.com/repos/CVEProject/cvelistV5/releases?per_page={per_page}&page={page}"
             print(f"[DEBUG] Fetching releases page {page}...")
-            
+
             response = http_get(url)
             response.raise_for_status()
-            
+
             releases = response.json()
             if not releases:
-                print(f"[WARN] No more releases found. Last tag '{last_tag}' not found.")
+                print(
+                    f"[WARN] No more releases found. Last tag '{last_tag}' not found."
+                )
                 break
-            
+
             for release in releases:
                 tag = release.get("tag_name")
-                
+
                 # Se encontrou o tag do último processado, para
                 if tag == last_tag:
                     found_last = True
                     print(f"[DEBUG] Found last processed tag: {last_tag}")
                     break
-                
+
                 # Coleta delta se tiver URL
                 delta_url = None
                 for asset in release.get("assets", []):
                     if self._detect_release_asset_type(asset) == "delta":
                         delta_url = asset.get("browser_download_url", "")
                         break
-                
+
                 if delta_url:
-                    deltas_needed.append({
-                        "tag_name": tag,
-                        "delta_url": delta_url,
-                        "published_at": release.get("published_at")
-                    })
-            
+                    deltas_needed.append(
+                        {
+                            "tag_name": tag,
+                            "delta_url": delta_url,
+                            "published_at": release.get("published_at"),
+                        }
+                    )
+
             # Se já encontrou ou não há mais páginas, para
             if found_last or len(releases) < per_page:
                 break
-                
+
             page += 1
-        
+
         # Inverte para processar do mais antigo ao mais recente
         deltas_needed.reverse()
-        
+
         print(f"[INFO] Found {len(deltas_needed)} deltas to process")
         for delta in deltas_needed:
             print(f"  - {delta['tag_name']}: {delta['delta_url']}")
-        
+
         return deltas_needed
 
     def listRecentDeltas(self, max_deltas: int = 20) -> list[dict]:
@@ -2192,7 +2418,9 @@ class CVElistV5:
                 formatted = self.formatDataVersion5_2(data)
                 if not formatted or formatted.get("state") in ["RESERVED", "REJECTED"]:
                     skipped += 1
-                    print(f"[INFO] Skipping {cve_id} (state={formatted.get('state') if formatted else 'unknown'})")
+                    print(
+                        f"[INFO] Skipping {cve_id} (state={formatted.get('state') if formatted else 'unknown'})"
+                    )
                     continue
                 db.insertCVE(formatted)
                 imported += 1
@@ -2220,32 +2448,32 @@ class CVElistV5:
     def downloadFile(self, url: str, dest_path: Path) -> Path:
         """
         Baixa um arquivo de uma URL com retry e progress.
-        
+
         Args:
             url: URL do arquivo a baixar
             dest_path: caminho de destino
-            
+
         Returns:
             Path do arquivo baixado
         """
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        
+
         print(f"[INFO] Downloading from: {url}")
-        
+
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
                 with http_get(url, stream=True, timeout=(30, 300)) as response:
                     response.raise_for_status()
-                    
+
                     # Pega o tamanho total
-                    total_size = int(response.headers.get('content-length', 0))
+                    total_size = int(response.headers.get("content-length", 0))
                     total_mb = total_size / (1024 * 1024)
                     print(f"[INFO] Total size: {total_mb:.2f} MB")
-                    
+
                     downloaded = 0
                     chunk_size = 1024 * 1024  # 1MB chunks
-                    
+
                     with open(dest_path, "wb") as f:
                         for chunk in response.iter_content(chunk_size=chunk_size):
                             if chunk:
@@ -2254,16 +2482,25 @@ class CVElistV5:
                                 # Progress a cada 10MB
                                 if downloaded % (10 * 1024 * 1024) < chunk_size:
                                     progress_mb = downloaded / (1024 * 1024)
-                                    percent = (downloaded / total_size * 100) if total_size > 0 else 0
-                                    print(f"[INFO] Downloaded: {progress_mb:.2f} MB ({percent:.1f}%)")
-                    
-                    print(f"[INFO] Download completed: {downloaded / (1024 * 1024):.2f} MB")
+                                    percent = (
+                                        (downloaded / total_size * 100)
+                                        if total_size > 0
+                                        else 0
+                                    )
+                                    print(
+                                        f"[INFO] Downloaded: {progress_mb:.2f} MB ({percent:.1f}%)"
+                                    )
+
+                    print(
+                        f"[INFO] Download completed: {downloaded / (1024 * 1024):.2f} MB"
+                    )
                     return dest_path
-                    
+
             except (REQUEST_EXCEPTION, OSError) as e:
                 print(f"[WARN] Download failed (attempt {attempt}/{max_retries}): {e}")
                 if attempt < max_retries:
                     import time
+
                     wait_time = 5 * attempt
                     print(f"[INFO] Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
@@ -2271,8 +2508,10 @@ class CVElistV5:
                     if dest_path.exists():
                         dest_path.unlink()
                 else:
-                    raise Exception(f"Download failed after {max_retries} attempts: {e}")
-        
+                    raise Exception(
+                        f"Download failed after {max_retries} attempts: {e}"
+                    )
+
         raise Exception(f"Failed to download {url}")
 
     def unzipDatabase(self, zip_file: Path) -> Path | None:
@@ -2291,18 +2530,18 @@ class CVElistV5:
             return None
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             file_list = zip_ref.namelist()
-            
+
             # Verifica se o zip está vazio
             if not file_list:
                 print(f"[INFO] Zip file is empty: {zip_file}")
                 return None
-            
+
             # Descobre o nome da pasta raiz do zip
             first_member = file_list[0]
-            root_folder = first_member.split('/')[0] if '/' in first_member else ''
-            
+            root_folder = first_member.split("/")[0] if "/" in first_member else ""
+
             zip_ref.extractall(extract_to)
-            
+
             # Processa zips internos recursivamente
             for file_name in file_list:
                 if file_name.endswith(".zip"):
@@ -2314,33 +2553,33 @@ class CVElistV5:
                     # Retorna o path do zip interno extraído (se não vazio)
                     if extracted_inner:
                         root_folder = extracted_inner.name
-        
+
         final_path = extract_to / root_folder if root_folder else extract_to
         print(f"[DEBUG] Extracted to: {final_path}")
         return final_path
-    
-    def formatDataVersion5_2(self, data: dict) -> dict: 
+
+    def formatDataVersion5_2(self, data: dict) -> dict:
         metadata = data.get("cveMetadata", {})
         cve_id = metadata.get("cveId")
         state = metadata.get("state")
-        date_reserved = metadata.get("dateReserved")    
+        date_reserved = metadata.get("dateReserved")
         date_published = metadata.get("datePublished")
         date_updated = metadata.get("dateUpdated")
-        
+
         cna = data.get("containers", {}).get("cna", {})
-        
+
         # Affected products/versions
         affected = [
             {"product": item.get("product"), "vendor": item.get("vendor")}
             for item in cna.get("affected", [])
         ]
-        
+
         # CWE IDs - busca em cna E adp
         problem_types = cna.get("problemTypes", []).copy()
         adp_list = data.get("containers", {}).get("adp", [])
         for adp in adp_list:
             problem_types.extend(adp.get("problemTypes", []))
-        
+
         cwe_ids = []
         for problemType in problem_types:
             for desc in problemType.get("descriptions", []):
@@ -2350,26 +2589,37 @@ class CVElistV5:
                 else:
                     # Tenta extrair do description com regex
                     description_text = desc.get("description", "")
-                    matches = re.findall(r'CWE-(\d+)', description_text, re.IGNORECASE)
+                    matches = re.findall(r"CWE-(\d+)", description_text, re.IGNORECASE)
                     for match in matches:
                         cwe_ids.append(f"CWE-{match}")
-        
+
         cwe_ids = list(set(filter(None, cwe_ids)))
-        
+
         # Description e Title
         descriptions = cna.get("descriptions", [])
         description = descriptions[0].get("value") if descriptions else None
-        title = cna.get("title") or "No Title Found"
-        
+        title = cna.get("title") or ""
+
+        if not title and description:
+            title = description.strip()[:140]
+            if len(description) > 140:
+                title = title.rsplit(" ", 1)[0]
+            if not title.endswith("."):
+                title += "..."
+        if not title:
+            title = "No Title Found"
+
         # References
         references = [
             {
                 "url": ref.get("url"),
-                "tags": list(set([tag for tag in ref.get("tags", []) if "x_" not in tag]))
+                "tags": list(
+                    set([tag for tag in ref.get("tags", []) if "x_" not in tag])
+                ),
             }
             for ref in cna.get("references", [])
         ]
-        
+
         # CVSS - tenta pegar do cna, senão busca no adp.
         # Importante: o fallback precisa acontecer quando o CNA não traz um vetor
         # CVSS de verdade, e não apenas quando a lista de metrics está vazia. Muitos
@@ -2380,7 +2630,9 @@ class CVElistV5:
                 {
                     "vectorString": value.get("vectorString"),
                     "version": value.get("version"),
-                    "score": calculateScoreCVSS(value.get("vectorString", ""), value.get("version", ""))
+                    "score": calculateScoreCVSS(
+                        value.get("vectorString", ""), value.get("version", "")
+                    ),
                 }
                 for metric in metrics
                 for key, value in metric.items()
@@ -2405,7 +2657,7 @@ class CVElistV5:
             "affected": affected,
             "cwe_ids": cwe_ids,
             "references": references,
-            "cvss": cvss
+            "cvss": cvss,
         }
 
     @staticmethod
@@ -2457,11 +2709,11 @@ class CVElistV5:
     ) -> dict:
         """
         Converte JSONs de CVE para SQLite.
-        
+
         Args:
             folderDatabase: pasta com os JSONs extraídos
             db: instância do banco de dados
-            
+
         Returns:
             int: quantidade de CVEs processados
         """
@@ -2477,11 +2729,16 @@ class CVElistV5:
                 with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     formattedData = self.formatDataVersion5_2(data)
-                    
+
                     # Ignora RESERVED e REJECTED
-                    if formattedData and formattedData.get("state") not in ["RESERVED", "REJECTED"]:
+                    if formattedData and formattedData.get("state") not in [
+                        "RESERVED",
+                        "REJECTED",
+                    ]:
                         if year is not None:
-                            cve_year = self._extract_year_from_cve_id(formattedData.get("cve_id"))
+                            cve_year = self._extract_year_from_cve_id(
+                                formattedData.get("cve_id")
+                            )
                             if cve_year != year:
                                 continue
                         scanned += 1
@@ -2491,7 +2748,9 @@ class CVElistV5:
                             persist_repositories=not require_complete_cve,
                         )
 
-                        if require_complete_cve and not self.isCompleteCVE(formattedData, complement):
+                        if require_complete_cve and not self.isCompleteCVE(
+                            formattedData, complement
+                        ):
                             skipped_incomplete += 1
                             if max_cves is not None and scanned >= max_cves:
                                 print(
@@ -2502,7 +2761,7 @@ class CVElistV5:
 
                         db.insertCVE(formattedData, complement=complement)
                         count += 1
-                        
+
                         if require_complete_cve and count >= target_complete_cves:
                             print(
                                 f"[INFO] Reached target complete CVEs "
@@ -2529,19 +2788,25 @@ class CVElistV5:
                             break
 
                         if max_cves is not None and count >= max_cves:
-                            print(f"[INFO] Reached max CVEs limit ({max_cves}). Stopping import early.")
+                            print(
+                                f"[INFO] Reached max CVEs limit ({max_cves}). Stopping import early."
+                            )
                             break
 
-                        if require_complete_cve and max_cves is not None and scanned >= max_cves:
+                        if (
+                            require_complete_cve
+                            and max_cves is not None
+                            and scanned >= max_cves
+                        ):
                             print(
                                 f"[INFO] Reached max CVEs scan limit ({max_cves}) in complete-only mode."
                             )
                             break
-                        
+
             except (json.JSONDecodeError, KeyError, IOError, AttributeError) as e:
                 print(f"[WARN] Erro ao processar {file_path}: {e}")
                 continue
-        
+
         # Commit final
         db.conn.commit()
         if require_complete_cve:
@@ -2556,10 +2821,11 @@ class CVElistV5:
     def cleanupExtractedFolder(self, folder: Path) -> None:
         """Remove pasta extraída para liberar espaço."""
         import shutil
+
         if folder.exists() and folder.is_dir():
             print(f"[INFO] Cleaning up: {folder}")
             shutil.rmtree(folder)
-    
+
     def run(
         self,
         max_cves: int | None = None,
@@ -2573,60 +2839,70 @@ class CVElistV5:
     ) -> None:
         from datetime import datetime, timezone
         import shutil
-        
+
         # Timestamp de início
         start_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         print(f"[INFO] Start time: {start_time}")
-        
+
         # Inicializa o banco de dados
         print(f"[INFO] Initializing database at {self.SQLITE_DB}")
         db = databaseSQLite(self.SQLITE_DB)
         db.createTable()
-        
+
         # Verifica se já existe base_release_file
         source_info = db.getSourceInfo("cvelistV5")
         has_base = source_info and source_info.get("base_release_file")
-        last_release_file = source_info.get("last_release_file") if source_info else None
-        
+        last_release_file = (
+            source_info.get("last_release_file") if source_info else None
+        )
+
         total_count = 0
         total_scanned = 0
         total_skipped_incomplete = 0
-        
+
         if has_base:
             # Modo Delta: busca todos os deltas desde o último processado
             print(f"[INFO] Base release exists: {source_info.get('base_release_file')}")
             print(f"[INFO] Last release processed: {last_release_file}")
-            
+
             deltas = self.getDeltasAfterRelease(last_release_file)
-            
+
             if not deltas:
                 print("[INFO] No new deltas to process. Database is up-to-date!")
             else:
                 print(f"[INFO] Processing {len(deltas)} delta(s)...")
-                
+
                 for i, delta in enumerate(deltas, 1):
-                    print(f"\n[INFO] === Processing delta {i}/{len(deltas)}: {delta['tag_name']} ===")
-                    
+                    print(
+                        f"\n[INFO] === Processing delta {i}/{len(deltas)}: {delta['tag_name']} ==="
+                    )
+
                     delta_url = delta["delta_url"]
                     dest_path = self.DATA_DIR / f"delta_{delta['tag_name']}.zip"
-                    
+
                     # Download delta
                     pathFileZip = self.downloadFile(delta_url, dest_path)
-                    
+
                     # Unzip
                     print(f"[INFO] Unzipping delta {delta['tag_name']}...")
                     folderDatabase = self.unzipDatabase(pathFileZip)
-                    
+
                     # Verifica se o delta está vazio
                     if folderDatabase is None:
-                        print(f"[INFO] Delta {delta['tag_name']} is empty (0 CVEs changed). Skipping...")
+                        print(
+                            f"[INFO] Delta {delta['tag_name']} is empty (0 CVEs changed). Skipping..."
+                        )
                         count = 0
                     else:
                         print(f"[INFO] Delta extracted to: {folderDatabase}")
-                        
+
                         # Convert JSONs to SQLite
                         print(f"[INFO] Converting delta JSON to SQLite...")
-                        remaining = None if max_cves is None else max(0, max_cves - total_scanned)
+                        remaining = (
+                            None
+                            if max_cves is None
+                            else max(0, max_cves - total_scanned)
+                        )
                         result = self.convertJSONToSQLite(
                             folderDatabase,
                             db,
@@ -2639,19 +2915,19 @@ class CVElistV5:
                         total_count += count
                         total_scanned += result["scanned"]
                         total_skipped_incomplete += result["skipped_incomplete"]
-                        
+
                         # Cleanup pasta extraída
                         self.cleanupExtractedFolder(folderDatabase)
-                    
+
                     # Atualiza last_release_file após cada delta processado (mesmo se vazio)
                     db.updateSource(
                         source_name="cvelistV5",
                         last_verified=start_time,
                         last_updated=delta.get("published_at", ""),
                         last_release_file=delta_url,
-                        base_release_file=None  # Mantém o existente
+                        base_release_file=None,  # Mantém o existente
                     )
-                    
+
                     print(f"[INFO] Delta {delta['tag_name']} processed: {count} CVEs")
 
                     if require_complete_cve and total_count >= target_complete_cves:
@@ -2663,26 +2939,38 @@ class CVElistV5:
                             pathFileZip.unlink()
                         break
 
-                    if require_complete_cve and max_cves is not None and total_scanned >= max_cves:
-                        print(f"[INFO] Reached max CVEs scan limit ({max_cves}) during delta processing.")
+                    if (
+                        require_complete_cve
+                        and max_cves is not None
+                        and total_scanned >= max_cves
+                    ):
+                        print(
+                            f"[INFO] Reached max CVEs scan limit ({max_cves}) during delta processing."
+                        )
                         if pathFileZip.exists():
                             pathFileZip.unlink()
                         break
 
-                    if not require_complete_cve and max_cves is not None and total_count >= max_cves:
-                        print(f"[INFO] Reached max CVEs limit ({max_cves}) during delta processing.")
+                    if (
+                        not require_complete_cve
+                        and max_cves is not None
+                        and total_count >= max_cves
+                    ):
+                        print(
+                            f"[INFO] Reached max CVEs limit ({max_cves}) during delta processing."
+                        )
                         # Cleanup: remove zip
                         if pathFileZip.exists():
                             pathFileZip.unlink()
                         break
-                    
+
                     # Cleanup: remove zip
                     if pathFileZip.exists():
                         pathFileZip.unlink()
         else:
             # Modo Full: primeira execução, baixa dataset completo
             print("[INFO] No base release found. Downloading initial dataset...")
-            
+
             release_info = self.listReleases()
             if force_delta:
                 if require_complete_cve:
@@ -2697,10 +2985,16 @@ class CVElistV5:
                     for i, delta in enumerate(recent_deltas, 1):
                         if require_complete_cve and total_count >= target_complete_cves:
                             break
-                        if require_complete_cve and max_cves is not None and total_scanned >= max_cves:
+                        if (
+                            require_complete_cve
+                            and max_cves is not None
+                            and total_scanned >= max_cves
+                        ):
                             break
 
-                        print(f"\n[INFO] === Processing recent delta {i}/{len(recent_deltas)}: {delta['tag_name']} ===")
+                        print(
+                            f"\n[INFO] === Processing recent delta {i}/{len(recent_deltas)}: {delta['tag_name']} ==="
+                        )
                         delta_url = delta["delta_url"]
                         dest_path = self.DATA_DIR / f"delta_{delta['tag_name']}.zip"
                         pathFileZip = self.downloadFile(delta_url, dest_path)
@@ -2708,7 +3002,11 @@ class CVElistV5:
                         folderDatabase = self.unzipDatabase(pathFileZip)
 
                         if folderDatabase is not None:
-                            remaining = None if max_cves is None else max(0, max_cves - total_scanned)
+                            remaining = (
+                                None
+                                if max_cves is None
+                                else max(0, max_cves - total_scanned)
+                            )
                             result = self.convertJSONToSQLite(
                                 folderDatabase,
                                 db,
@@ -2739,28 +3037,32 @@ class CVElistV5:
                     print(f"[INFO] Total CVEs processed: {total_count}")
                     print(f"[INFO] Total CVEs scanned: {total_scanned}")
                     if require_complete_cve:
-                        print(f"[INFO] Total CVEs skipped (incomplete): {total_skipped_incomplete}")
+                        print(
+                            f"[INFO] Total CVEs skipped (incomplete): {total_skipped_incomplete}"
+                        )
                     print("[INFO] Done!")
                     return
                 download_url = release_info.get("delta_cves_url")
                 if not download_url:
                     raise Exception("No delta_CVEs URL found in latest release")
-                print("[INFO] force_delta enabled: using delta package instead of full package")
+                print(
+                    "[INFO] force_delta enabled: using delta package instead of full package"
+                )
             else:
                 download_url = release_info.get("all_cves_url")
                 if not download_url:
                     raise Exception("No all_CVEs URL found in latest release")
-            
+
             dest_path = self.DOWNLOAD_ZIP
-            
+
             # Download
             pathFileZip = self.downloadFile(download_url, dest_path)
-            
+
             # Unzip
             print("[INFO] Unzipping full database...")
             folderDatabase = self.unzipDatabase(pathFileZip)
             print(f"[INFO] Database extracted to: {folderDatabase}")
-            
+
             target_year = self._resolve_target_year(
                 db=db,
                 folderDatabase=folderDatabase,
@@ -2768,7 +3070,9 @@ class CVElistV5:
                 year_auto=year_auto,
             )
             if target_year is not None:
-                print(f"[INFO] Year filter enabled. Importing only CVEs from year {target_year}")
+                print(
+                    f"[INFO] Year filter enabled. Importing only CVEs from year {target_year}"
+                )
 
             # Convert JSONs to SQLite
             print("[INFO] Converting JSON to SQLite...")
@@ -2784,11 +3088,13 @@ class CVElistV5:
             total_count = result["processed"]
             total_scanned = result["scanned"]
             total_skipped_incomplete = result["skipped_incomplete"]
-            
+
             if year_auto:
                 years = self._list_years_in_extracted_dataset(folderDatabase)
                 if not years:
-                    raise RuntimeError("No CVE years found while persisting year-auto progress")
+                    raise RuntimeError(
+                        "No CVE years found while persisting year-auto progress"
+                    )
                 if target_year not in years:
                     raise RuntimeError(
                         f"Resolved target year {target_year} not found in extracted dataset years={years}"
@@ -2801,7 +3107,7 @@ class CVElistV5:
                         last_verified=start_time,
                         last_updated=release_info.get("updated_at", ""),
                         last_release_file=download_url,
-                        base_release_file=download_url
+                        base_release_file=download_url,
                     )
                     db.updateSource(
                         source_name="cvelistV5-year-bootstrap",
@@ -2810,7 +3116,9 @@ class CVElistV5:
                         last_release_file="completed",
                         base_release_file="completed",
                     )
-                    print("[INFO] Yearly bootstrap completed. Next runs can use delta mode.")
+                    print(
+                        "[INFO] Yearly bootstrap completed. Next runs can use delta mode."
+                    )
                 else:
                     db.updateSource(
                         source_name="cvelistV5-year-bootstrap",
@@ -2830,14 +3138,14 @@ class CVElistV5:
                     last_verified=start_time,
                     last_updated=release_info.get("updated_at", ""),
                     last_release_file=download_url,
-                    base_release_file=download_url
+                    base_release_file=download_url,
                 )
-            
+
             # Cleanup
             if pathFileZip.exists():
                 pathFileZip.unlink()
             self.cleanupExtractedFolder(folderDatabase)
-        
+
         db.conn.close()
         print(f"\n[INFO] ==============================")
         print(f"[INFO] SQLite database saved to: {self.SQLITE_DB}")
@@ -2846,6 +3154,7 @@ class CVElistV5:
         if require_complete_cve:
             print(f"[INFO] Total CVEs skipped (incomplete): {total_skipped_incomplete}")
         print("[INFO] Done!")
+
 
 class findExploits:
     EXPLOITDB_EXPLOITS = "exploit-db.com/exploits/"
@@ -2861,7 +3170,7 @@ class findExploits:
     # Palavras-chave para identificar exploits (devem estar isoladas)
     EXPLOIT_KEYWORDS = [
         "poc",
-        "curl", # Em pocs é comum ver o curl para executar o exploit
+        "curl",  # Em pocs é comum ver o curl para executar o exploit
         "payload",
         "steps to reproduce",
         "steps to exploit",
@@ -2870,22 +3179,22 @@ class findExploits:
         "demo video",
         "proof-of-concept",
         "proof of concept",
-        "proof of vulnerability"
+        "proof of vulnerability",
     ]
-    
+
     # Extensões de arquivo que podem conter exploits no GitHub
     GITHUB_EXPLOIT_EXTENSIONS = [".md", ".txt"]
-    
+
     HEADERS_BROWSER = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
     }
-    
+
     # EM um futuro quando for acessar todos os blogs isso será utilizado
     DENYLIST_URLS = [
         "plugins.trac.wordpress.org/",  # código-fonte de plugins WP (arquivo vulnerável / patch), nunca exploit
-        "plugins.svn.wordpress.org/",   # repositório SVN bruto de plugins WP, nunca exploit
+        "plugins.svn.wordpress.org/",  # repositório SVN bruto de plugins WP, nunca exploit
         "zerodayinitiative.com/",
         "snyk.io/",
         "chromium.org/",
@@ -2979,7 +3288,7 @@ class findExploits:
         "samsungmobile.com/",
         "googlesource.com/",
     ]
-    
+
     def _containsExploitKeywords(self, text: str) -> bool:
         """
         Verifica se o texto contém palavras-chave de exploit.
@@ -2989,37 +3298,37 @@ class findExploits:
         for keyword in self.EXPLOIT_KEYWORDS:
             # Regex: \b = word boundary (início/fim de palavra)
             # Isso garante que a keyword não está colada em outro texto alfanumérico
-            pattern = r'(?<![a-zA-Z0-9])' + re.escape(keyword) + r'(?![a-zA-Z])'
+            pattern = r"(?<![a-zA-Z0-9])" + re.escape(keyword) + r"(?![a-zA-Z])"
             if re.search(pattern, text_lower):
                 return True
         return False
-    
+
     def _convertGithubBlobToRaw(self, url: str) -> str | None:
         """
         Converte URL do GitHub /blob/ para raw.githubusercontent.com
-        
+
         Ex: https://github.com/USER/REPO/blob/main/path/file.md
         ->  https://raw.githubusercontent.com/USER/REPO/refs/heads/main/path/file.md
-        
+
         Returns:
             URL convertida ou None se não for um arquivo válido
         """
         # Verifica se é uma URL de arquivo (contém /blob/)
         if "/blob/" not in url:
             return None
-        
+
         # Verifica se termina com uma extensão de arquivo válida
         url_lower = url.lower()
         if not any(ext in url_lower for ext in self.GITHUB_EXPLOIT_EXTENSIONS):
             return None
-        
+
         # Converte: github.com/USER/REPO/blob/BRANCH/PATH
         # Para: raw.githubusercontent.com/USER/REPO/refs/heads/BRANCH/PATH
         raw_url = url.replace("github.com", "raw.githubusercontent.com")
         raw_url = raw_url.replace("/blob/", "/refs/heads/")
-        
+
         return raw_url
-    
+
     def verifyGithubFile(self, url: str) -> bool:
         """
         Verifica se um arquivo no GitHub contém informações de exploit.
@@ -3030,19 +3339,47 @@ class findExploits:
             raw_url = self._convertGithubBlobToRaw(url)
             if not raw_url:
                 return False
-            
+
             response = http_get(raw_url, headers=self.HEADERS_BROWSER, timeout=15)
             response.raise_for_status()
-            
+
             # Arquivo raw é texto puro, busca keywords diretamente
             return self._containsExploitKeywords(response.text)
-            
+
         except REQUEST_EXCEPTION as e:
             print(f"[WARN] Failed to verify GitHub file {url}: {e}")
             return False
 
     # Extensões de arquivos binários que não devem ser parseados como HTML
-    BINARY_EXTENSIONS = [".pdf", ".zip", ".gz", ".tar", ".rar", ".exe", ".dll", ".bin", ".iso", ".img", ".dmg", ".apk", ".jar", ".war", ".ear", ".deb", ".rpm", ".msi", ".7z", ".bz2", ".xz", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]
+    BINARY_EXTENSIONS = [
+        ".pdf",
+        ".zip",
+        ".gz",
+        ".tar",
+        ".rar",
+        ".exe",
+        ".dll",
+        ".bin",
+        ".iso",
+        ".img",
+        ".dmg",
+        ".apk",
+        ".jar",
+        ".war",
+        ".ear",
+        ".deb",
+        ".rpm",
+        ".msi",
+        ".7z",
+        ".bz2",
+        ".xz",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+    ]
 
     def verifyBlog(self, url: str) -> bool:
         """
@@ -3054,18 +3391,18 @@ class findExploits:
         if any(url_lower.endswith(ext) for ext in self.BINARY_EXTENSIONS):
             print(f"[INFO] Skipping binary file {url}")
             return False
-        
+
         print(f"[INFO] Verifying blog URL {url}")
         try:
             response = http_get(url, headers=self.HEADERS_BROWSER, timeout=15)
             response.raise_for_status()
-            
+
             # Verifica Content-Type para evitar parse de binários
             content_type = response.headers.get("Content-Type", "").lower()
             if not any(t in content_type for t in ["text/", "html", "json", "xml"]):
                 print(f"[INFO] Skipping non-text content: {content_type}")
                 return False
-            
+
             # Tenta parse HTML, se falhar usa texto bruto
             try:
                 if BeautifulSoup is None:
@@ -3079,15 +3416,17 @@ class findExploits:
                     text = soup.get_text(separator=" ", strip=True)
             except Exception as parse_error:
                 # Se falhar o parse HTML (ex: arquivo .txt), usa texto bruto
-                print(f"[WARN] HTML parse failed for {url}, using raw text: {parse_error}")
+                print(
+                    f"[WARN] HTML parse failed for {url}, using raw text: {parse_error}"
+                )
                 text = response.text
-            
+
             return self._containsExploitKeywords(text)
-            
+
         except REQUEST_EXCEPTION as e:
             print(f"[WARN] Failed to verify blog URL {url}: {e}")
             return False
-    
+
     def verifyHUNTR(self, url: str) -> bool:
         """
         Verifica se a URL do Huntr contém informações de exploit.
@@ -3097,15 +3436,15 @@ class findExploits:
         try:
             # Converte huntr.dev para huntr.com (URLs antigas)
             request_url = url.replace("huntr.dev", "huntr.com")
-            
+
             # Extrai o bounty ID da URL
             # Ex: https://huntr.com/bounties/d7b8ea75-c74a-4721-89bb-12e5c80fb0ba
-            match = re.search(r'bounties/([a-f0-9-]+)', request_url)
+            match = re.search(r"bounties/([a-f0-9-]+)", request_url)
             if not match:
                 return False
-            
+
             bounty_id = match.group(1)
-            
+
             headers = {
                 "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
                 "Accept": "text/x-component",
@@ -3114,18 +3453,15 @@ class findExploits:
                 "Next-Action": "beb1d533b815727477b3a692f916569675036c0f",
                 "Referer": request_url,
             }
-            
+
             response = http_post(
-                request_url,
-                headers=headers,
-                data=f'["{bounty_id}"]',
-                timeout=15
+                request_url, headers=headers, data=f'["{bounty_id}"]', timeout=15
             )
             response.raise_for_status()
-            
+
             # Busca keywords diretamente na string de resposta (sem parse)
             return self._containsExploitKeywords(response.text)
-            
+
         except REQUEST_EXCEPTION as e:
             print(f"[WARN] Failed to verify HUNTR URL {url}: {e}")
             return False
@@ -3139,12 +3475,14 @@ class findExploits:
         try:
             # Cookie necessário para aceitar os termos de serviço
             cookies = {"tos": "20250912"}
-            response = http_get(url, headers=self.HEADERS_BROWSER, cookies=cookies, timeout=15)
+            response = http_get(
+                url, headers=self.HEADERS_BROWSER, cookies=cookies, timeout=15
+            )
             response.raise_for_status()
-            
+
             # Busca keywords diretamente na string de resposta (sem parse)
             return self._containsExploitKeywords(response.text)
-            
+
         except REQUEST_EXCEPTION as e:
             print(f"[WARN] Failed to verify Packet Storm URL {url}: {e}")
             return False
@@ -3156,12 +3494,12 @@ class findExploits:
         """
         print(f"[INFO] Verifying Hacker One URL {url}")
         try:
-            response = http_get(url+".json", headers=self.HEADERS_BROWSER, timeout=15)
+            response = http_get(url + ".json", headers=self.HEADERS_BROWSER, timeout=15)
             response.raise_for_status()
-            
+
             # Busca keywords diretamente na string de resposta (sem parse)
             return self._containsExploitKeywords(response.text)
-            
+
         except REQUEST_EXCEPTION as e:
             print(f"[WARN] Failed to verify Hacker One URL {url}: {e}")
             return False
@@ -3173,7 +3511,9 @@ class findExploits:
         url_lower = url.lower()
         if self.EXPLOITDB_EXPLOITS in url_lower or self.MEDIUM_EXPLOITS in url_lower:
             return True
-        elif self.HUNTR_EXPLOITS in url_lower or self.HUNTR_EXPLOITS_LEGACY in url_lower:
+        elif (
+            self.HUNTR_EXPLOITS in url_lower or self.HUNTR_EXPLOITS_LEGACY in url_lower
+        ):
             return self.verifyHUNTR(url)
         elif self.GHSA_EXPLOITS in url_lower and self.GITHUB_PATH in url_lower:
             return self.verifyBlog(url)
@@ -3191,12 +3531,13 @@ class findExploits:
                 return False
             else:
                 return self.verifyBlog(url)
-    
+
     def run(self, url: str) -> bool:
         """
         Verifica uma URL e retorna se é um exploit.
         """
         return self.verifyHandler(url)
+
 
 class GitHubArchiveSource:
     """
@@ -3213,6 +3554,7 @@ class GitHubArchiveSource:
     Subclasses definem: REPO, BRANCH, SOURCE_NAME, _isRelevantPath, _iterFiles,
     _processFile.
     """
+
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
 
@@ -3280,7 +3622,9 @@ class GitHubArchiveSource:
             changed = github_compare_files(self.REPO, prior_sha, head_sha)
             if changed is not None:
                 relevant = [p for p in changed if p and self._isRelevantPath(p)]
-                print(f"[INFO] {self.SOURCE_NAME}: incremental — {len(relevant)} relevant changed files")
+                print(
+                    f"[INFO] {self.SOURCE_NAME}: incremental — {len(relevant)} relevant changed files"
+                )
                 for i, rel_path in enumerate(relevant, 1):
                     data = self._fetchRawFile(rel_path, head_sha)
                     if data is None:
@@ -3290,9 +3634,13 @@ class GitHubArchiveSource:
                         db.conn.commit()
                 db.conn.commit()
                 db.updateSource(self.SOURCE_NAME, started, started, head_sha)
-                print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (incremental)")
+                print(
+                    f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (incremental)"
+                )
                 return
-            print(f"[WARN] {self.SOURCE_NAME}: compare unavailable, falling back to full scan")
+            print(
+                f"[WARN] {self.SOURCE_NAME}: compare unavailable, falling back to full scan"
+            )
 
         # Scan completo (primeira execução ou fallback)
         root = self._downloadArchive()
@@ -3302,10 +3650,16 @@ class GitHubArchiveSource:
             count += 1
             if count % 2000 == 0:
                 db.conn.commit()
-                print(f"[INFO] {self.SOURCE_NAME}: scanned {count} files, enriched {processed} CVEs")
+                print(
+                    f"[INFO] {self.SOURCE_NAME}: scanned {count} files, enriched {processed} CVEs"
+                )
         db.conn.commit()
-        db.updateSource(self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha)
-        print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (full scan of {count} files)")
+        db.updateSource(
+            self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha
+        )
+        print(
+            f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (full scan of {count} files)"
+        )
 
 
 class WordPressMetadata:
@@ -3317,10 +3671,13 @@ class WordPressMetadata:
     'slug', 'name', 'active_installs' e 'downloaded'. Apenas os slugs que já existem
     no nosso banco são atualizados; plugins ausentes da fonte ficam com métricas NULL.
     """
+
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
 
-    SOURCE_URL = "https://raw.githubusercontent.com/rix4uni/wordpress-plugins/main/plugins.json"
+    SOURCE_URL = (
+        "https://raw.githubusercontent.com/rix4uni/wordpress-plugins/main/plugins.json"
+    )
 
     @staticmethod
     def _parseLastUpdated(raw: object) -> str | None:
@@ -3341,18 +3698,25 @@ class WordPressMetadata:
         # Backfill: classifica CVEs já existentes a partir das referências gravadas,
         # cobrindo o backlog que o pipeline incremental (deltas) nunca reprocessaria.
         classified = db.backfillWordpressClassification()
-        print(f"[INFO] wordpress: {classified} CVEs classified as WordPress (from stored references)")
+        print(
+            f"[INFO] wordpress: {classified} CVEs classified as WordPress (from stored references)"
+        )
 
         # Slugs que precisamos enriquecer (inseridos pelo pipeline de CVEs + backfill acima)
-        db.cursor.execute("SELECT fullpath FROM repositories WHERE ecosystem = 'wordpress'")
+        db.cursor.execute(
+            "SELECT fullpath FROM repositories WHERE ecosystem = 'wordpress'"
+        )
         prefix = WordPressExtractor.FULLPATH_PREFIX
         wp_fullpaths = [
-            row[0] for row in db.cursor.fetchall()
+            row[0]
+            for row in db.cursor.fetchall()
             if row[0] and row[0].startswith(prefix)
         ]
-        our_slugs = {fp[len(prefix):] for fp in wp_fullpaths}
+        our_slugs = {fp[len(prefix) :] for fp in wp_fullpaths}
         if not our_slugs:
-            print("[INFO] wordpress: no WordPress plugins in database; skipping metadata fetch")
+            print(
+                "[INFO] wordpress: no WordPress plugins in database; skipping metadata fetch"
+            )
             return
 
         # Plugins WordPress nunca passam pela verificação GraphQL (is_exists=1 na
@@ -3369,7 +3733,9 @@ class WordPressMetadata:
         print(f"[INFO] wordpress: recalculated commits_fix for {fixes_updated} plugins")
 
         dest = self.DATA_DIR / "wordpress_plugins.json"
-        print(f"[INFO] wordpress: downloading plugins metadata ({len(our_slugs)} plugins to enrich)...")
+        print(
+            f"[INFO] wordpress: downloading plugins metadata ({len(our_slugs)} plugins to enrich)..."
+        )
         download_to(self.SOURCE_URL, dest)
 
         with open(dest, "r", encoding="utf-8") as f:
@@ -3380,27 +3746,32 @@ class WordPressMetadata:
             slug = (plugin.get("slug") or "").strip().lower()
             if not slug or slug not in our_slugs:
                 continue
-            db.cursor.execute("""
+            db.cursor.execute(
+                """
             UPDATE repositories SET
                 active_installs = ?,
                 downloads = ?,
                 name = COALESCE(?, name),
                 updated_repository = COALESCE(?, updated_repository)
             WHERE fullpath = ?
-            """, (
-                plugin.get("active_installs"),
-                plugin.get("downloaded"),
-                plugin.get("name"),
-                self._parseLastUpdated(plugin.get("last_updated")),
-                WordPressExtractor.fullpathFromSlug(slug),
-            ))
+            """,
+                (
+                    plugin.get("active_installs"),
+                    plugin.get("downloaded"),
+                    plugin.get("name"),
+                    self._parseLastUpdated(plugin.get("last_updated")),
+                    WordPressExtractor.fullpathFromSlug(slug),
+                ),
+            )
             updated += 1
             if updated % 500 == 0:
                 db.conn.commit()
 
         db.conn.commit()
         dest.unlink(missing_ok=True)
-        print(f"[INFO] wordpress: enriched {updated}/{len(our_slugs)} plugins with install/download metrics")
+        print(
+            f"[INFO] wordpress: enriched {updated}/{len(our_slugs)} plugins with install/download metrics"
+        )
 
 
 class PoCInGitHub(GitHubArchiveSource):
@@ -3411,11 +3782,12 @@ class PoCInGitHub(GitHubArchiveSource):
 
     Layout: YEAR/CVE-XXXX-YYYY.json, cada arquivo é um array de objetos com html_url.
     """
+
     REPO = "nomi-sec/PoC-in-GitHub"
     BRANCH = "master"
     SOURCE_NAME = "poc-in-github"
 
-    _PATH_RE = re.compile(r'^\d{4}/CVE-[^/]+\.json$', re.IGNORECASE)
+    _PATH_RE = re.compile(r"^\d{4}/CVE-[^/]+\.json$", re.IGNORECASE)
 
     def _isRelevantPath(self, path: str) -> bool:
         return bool(self._PATH_RE.match(path))
@@ -3464,12 +3836,13 @@ class NucleiTemplates(GitHubArchiveSource):
     HEAD é gravado em `sources` só para registro. Fallback para o zip só se a Trees
     API vier `truncated` (limite da API; não ocorre nesse repo).
     """
+
     REPO = "projectdiscovery/nuclei-templates"
     BRANCH = "main"
     SOURCE_NAME = "nuclei-templates"
 
     # Nome de arquivo de template de CVE: captura o CVE id (ex.: CVE-2021-44228.yaml).
-    _CVE_FILE_RE = re.compile(r'(CVE-\d{4}-\d{4,})\.ya?ml$', re.IGNORECASE)
+    _CVE_FILE_RE = re.compile(r"(CVE-\d{4}-\d{4,})\.ya?ml$", re.IGNORECASE)
 
     def _isRelevantPath(self, path: str) -> bool:
         return self._CVE_FILE_RE.search(path) is not None
@@ -3542,14 +3915,20 @@ class NucleiTemplates(GitHubArchiveSource):
         paths, truncated = self._fetchTreePaths(head_sha)
         if paths is not None and not truncated:
             processed = self._enrich(db, paths)
-            print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs from {len(paths)} templates (trees API)")
+            print(
+                f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs from {len(paths)} templates (trees API)"
+            )
         else:
             reason = "trees API truncated" if truncated else "trees API unavailable"
             print(f"[WARN] {self.SOURCE_NAME}: {reason}; falling back to zip scan")
             root = self._downloadArchive()
             processed = self._enrich(db, list(self._iterZipPaths(root)))
-            print(f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (zip fallback)")
-        db.updateSource(self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha)
+            print(
+                f"[INFO] {self.SOURCE_NAME}: enriched {processed} CVEs (zip fallback)"
+            )
+        db.updateSource(
+            self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha
+        )
 
 
 class GitHubAdvisory(GitHubArchiveSource):
@@ -3566,6 +3945,7 @@ class GitHubAdvisory(GitHubArchiveSource):
 
     Layout: advisories/github-reviewed/YEAR/MONTH/GHSA-xxxx/GHSA-xxxx.json
     """
+
     REPO = "github/advisory-database"
     BRANCH = "main"
     SOURCE_NAME = "github-advisory"
@@ -3624,7 +4004,9 @@ class GitHubAdvisory(GitHubArchiveSource):
         if not isinstance(data, dict):
             return 0
         aliases = data.get("aliases") or []
-        cve_ids = [a for a in aliases if isinstance(a, str) and a.upper().startswith("CVE-")]
+        cve_ids = [
+            a for a in aliases if isinstance(a, str) and a.upper().startswith("CVE-")
+        ]
         if not cve_ids:
             return 0
 
@@ -3648,7 +4030,9 @@ class GitHubAdvisory(GitHubArchiveSource):
             vector = sev.get("score") if isinstance(sev, dict) else None
             if isinstance(vector, str) and vector.startswith("CVSS"):
                 version = self._cvssVersion(vector)
-                cvss_list.append({"version": version, "score": calculateScoreCVSS(vector, version)})
+                cvss_list.append(
+                    {"version": version, "score": calculateScoreCVSS(vector, version)}
+                )
 
         affected = []
         for aff in data.get("affected", []):
@@ -3681,7 +4065,9 @@ class GitHubAdvisory(GitHubArchiveSource):
                 # enriquecimento abaixo roda em seguida e é idempotente (dedup),
                 # virando no-op para os dados que insertCVE já gravou e mantendo
                 # apenas os extras do GHSA (repos 'package' e PoC do advisory).
-                db.insertCVE(self._buildCveData(cve_id, data, refs, cvss_list, affected, cwe_ids))
+                db.insertCVE(
+                    self._buildCveData(cve_id, data, refs, cvss_list, affected, cwe_ids)
+                )
             # mergeReferences primeiro: vincula repos de commit como fix_commit,
             # prevalecendo sobre o link "package" (INSERT OR IGNORE na PK).
             if refs:
@@ -3698,6 +4084,289 @@ class GitHubAdvisory(GitHubArchiveSource):
                 db.addAffected(cve_id, affected)
             count += 1
         return count
+
+
+class KevEnrichment:
+    """
+    Enriquece CVEs com dados do CISA Known Exploited Vulnerabilities (KEV) Catalog.
+
+    Baixa o JSON oficial do CISA KEV e atualiza as colunas:
+    - in_kev: 1 se a CVE está no catálogo
+    - kev_date_added: data em que a CVE foi adicionada ao KEV
+    - kev_due_date: prazo de remediação (BOD 26-04)
+    - kev_ransomware: 1 se a CVE é conhecida por uso em campanhas de ransomware
+    """
+
+    PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+    DATA_DIR = PROJECT_ROOT / "data"
+
+    KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        print(f"[INFO] kev: downloading CISA KEV catalog from {self.KEV_URL} ...")
+        try:
+            resp = http_get(
+                self.KEV_URL, headers={"User-Agent": "SunCVE/1.0"}, timeout=60
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            print(f"[WARN] kev: failed to download KEV JSON: {e}")
+            return
+
+        vulnerabilities = data.get(
+            "vulnerabilities", data if isinstance(data, list) else []
+        )
+        title = data.get("title", "") if isinstance(data, dict) else ""
+        catalog_version = (
+            data.get("catalogVersion", "") if isinstance(data, dict) else ""
+        )
+
+        print(
+            f'[INFO] kev: catalog "{title}" version {catalog_version} '
+            f"with {len(vulnerabilities)} entries"
+        )
+
+        updated = 0
+        skipped = 0
+
+        for entry in vulnerabilities:
+            if not isinstance(entry, dict):
+                continue
+            cve_id = entry.get("cveID", "").strip().upper()
+            if not cve_id or not cve_id.startswith("CVE-"):
+                continue
+
+            if not db.cveExists(cve_id):
+                skipped += 1
+                continue
+
+            date_added = entry.get("dateAdded", "")
+            due_date = entry.get("dueDate", "")
+            known_ransomware = entry.get("knownRansomwareCampaignUse", "Unknown")
+            ransomware_val = 1 if known_ransomware == "Known" else 0
+
+            db.cursor.execute(
+                """
+                UPDATE cves SET
+                  in_kev = 1,
+                  kev_date_added = ?,
+                  kev_due_date = ?,
+                  kev_ransomware = ?
+                WHERE cve_id = ?
+                """,
+                (date_added, due_date, ransomware_val, cve_id),
+            )
+            updated += 1
+
+        db.conn.commit()
+        print(
+            f"[INFO] kev: enriched {updated} CVEs, {skipped} KEV entries not in database"
+        )
+
+
+class WordfenceNucleiTemplates:
+    """
+    Enriquece CVEs com templates Nuclei do repositório topscoder/nuclei-wordfence-cve.
+
+    Contém 77k+ templates WordPress gerados a partir do feed de inteligência do
+    Wordfence, organizados por ano em nuclei-templates/YYYY/CVE-YYYY-NNNNN-*.yaml.
+    Usa Git Trees API (não-recursiva) iterando por diretório de ano para evitar
+    o limite de 5MB da API recursiva (o repo tem 77k arquivos).
+
+    Cada template é adicionado ao list_nuclei da CVE com source='wordfence'.
+    """
+
+    REPO = "topscoder/nuclei-wordfence-cve"
+    BRANCH = "main"
+    SOURCE_NAME = "wordfence-nuclei"
+
+    _CVE_FILE_RE = re.compile(r"^(CVE-\d{4}-\d{4,})", re.IGNORECASE)
+
+    @staticmethod
+    def _getTree(repo: str, sha: str) -> dict | None:
+        url = f"https://api.github.com/repos/{repo}/git/trees/{sha}"
+        try:
+            resp = http_get(url, headers=_github_api_headers())
+            if resp.status_code != 200:
+                print(f"  [WARN] wordfence-nuclei: trees API HTTP {resp.status_code}")
+                return None
+            return resp.json()
+        except (REQUEST_EXCEPTION, ValueError) as e:
+            print(f"  [WARN] wordfence-nuclei: trees API failed: {e}")
+            return None
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        head_sha = github_branch_head_sha(self.REPO, self.BRANCH)
+        if not head_sha:
+            print(f"[WARN] wordfence-nuclei: could not resolve HEAD sha; skipping")
+            return
+
+        started = datetime.now(timezone.utc).isoformat()
+
+        root_tree = self._getTree(self.REPO, head_sha)
+        if not root_tree:
+            return
+
+        templates_sha = None
+        for node in root_tree.get("tree", []):
+            if node.get("path") == "nuclei-templates" and node.get("type") == "tree":
+                templates_sha = node["sha"]
+                break
+
+        if not templates_sha:
+            print("[WARN] wordfence-nuclei: nuclei-templates dir not found")
+            return
+
+        templates_tree = self._getTree(self.REPO, templates_sha)
+        if not templates_tree:
+            return
+
+        enriched = 0
+        total_templates = 0
+
+        for node in templates_tree.get("tree", []):
+            if node.get("type") != "tree":
+                continue
+
+            year_dir = node["path"]
+            year_sha = node["sha"]
+
+            year_tree = self._getTree(self.REPO, year_sha)
+            if not year_tree:
+                continue
+
+            cve_map: dict[str, list[dict]] = {}
+
+            for file_node in year_tree.get("tree", []):
+                if file_node.get("type") != "blob":
+                    continue
+
+                name = file_node["path"]
+                match = self._CVE_FILE_RE.match(name)
+                if not match:
+                    continue
+
+                cve_id = match.group(1).upper()
+                if not cve_id.startswith("CVE-"):
+                    continue
+
+                template_url = (
+                    f"https://raw.githubusercontent.com/{self.REPO}/{self.BRANCH}"
+                    f"/nuclei-templates/{year_dir}/{name}"
+                )
+
+                if cve_id not in cve_map:
+                    cve_map[cve_id] = []
+
+                cve_map[cve_id].append(
+                    {
+                        "template_id": Path(name).stem,
+                        "path": f"nuclei-templates/{year_dir}/{name}",
+                        "url": template_url,
+                        "source": "wordfence",
+                    }
+                )
+
+            year_enriched = 0
+            for cve_id, templates in cve_map.items():
+                if db.cveExists(cve_id) and db.addNucleiTemplates(cve_id, templates):
+                    year_enriched += 1
+
+            total_templates += sum(len(v) for v in cve_map.values())
+            enriched += year_enriched
+            db.conn.commit()
+            print(
+                f"  [INFO] wordfence-nuclei: year {year_dir} — "
+                f"{len(cve_map)} CVEs, {year_enriched} enriched"
+            )
+
+        print(
+            f"[INFO] wordfence-nuclei: {total_templates} templates, "
+            f"{enriched} CVEs enriched total"
+        )
+        db.updateSource(
+            self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha
+        )
+
+
+class MissingNucleiTemplates:
+    """
+    Enriquece CVEs com indicador de "template ausente" baseado na lista semanal do
+    repositorio edoardottt/missing-cve-nuclei-templates.
+
+    Contem 65k+ CVEs que NAO possuem template no repositorio oficial do Nuclei,
+    organizadas por ano em data/year/YYYY.txt.
+    Formato: [ CVE-YYYY-NNNNN ] [ vuln_type ] URL
+    """
+
+    BASE_URL = (
+        "https://raw.githubusercontent.com/edoardottt/"
+        "missing-cve-nuclei-templates/main/data/year"
+    )
+    SOURCE_NAME = "missing-nuclei-templates"
+
+    _CVE_LINE_RE = re.compile(r"\[ (CVE-\d{4}-\d{4,}) \]")
+
+    @staticmethod
+    def _parseCveIds(text: str) -> list[str]:
+        return [
+            m.group(1).upper()
+            for m in MissingNucleiTemplates._CVE_LINE_RE.finditer(text)
+        ]
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        started = datetime.now(timezone.utc).isoformat()
+        total_cves = 0
+        enriched = 0
+
+        for year in range(1999, datetime.now().year + 1):
+            url = f"{self.BASE_URL}/{year}.txt"
+            try:
+                resp = http_get(url, headers={"User-Agent": "SunCVE/1.0"}, timeout=30)
+                if resp.status_code == 404:
+                    continue
+                resp.raise_for_status()
+                text = resp.text
+            except Exception as e:
+                print(f"  [WARN] missing-templates: year {year} download failed: {e}")
+                continue
+
+            cve_ids = set(self._parseCveIds(text))
+            year_enriched = 0
+
+            for cve_id in cve_ids:
+                if db.cveExists(cve_id):
+                    db.cursor.execute(
+                        "UPDATE cves SET missing_nuclei_template = 1 WHERE cve_id = ?",
+                        (cve_id,),
+                    )
+                    year_enriched += 1
+
+            total_cves += len(cve_ids)
+            enriched += year_enriched
+            db.conn.commit()
+            print(
+                f"  [INFO] missing-templates: year {year} — "
+                f"{len(cve_ids)} CVEs listed, {year_enriched} in database"
+            )
+
+        print(
+            f"[INFO] missing-templates: {total_cves} CVEs missing template, "
+            f"{enriched} enriched in database"
+        )
+        db.updateSource(
+            self.SOURCE_NAME,
+            started,
+            started,
+            datetime.now(timezone.utc).isoformat(),
+        )
 
 
 class RepoManifestScanner:
@@ -3719,6 +4388,7 @@ class RepoManifestScanner:
     - Fallback (sem token, ou repository=null por rename/privado): raw.githubusercontent
       em main/master (o raw segue redirect de rename).
     """
+
     SOURCE_NAME = "repo-manifests"
     GRAPHQL_URL = "https://api.github.com/graphql"
     RAW_URL = "https://raw.githubusercontent.com/{fullpath}/{branch}/{file}"
@@ -3753,15 +4423,17 @@ class RepoManifestScanner:
         for i, fullpath in enumerate(batch):
             owner, name = fullpath.split("/", 1)
             parts.append(
-                f'r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{\n'
-                f'  defaultBranchRef {{ name }}\n'
+                f"r{i}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{\n"
+                f"  defaultBranchRef {{ name }}\n"
                 f'  pkg: object(expression: "HEAD:package.json") {{ ... on Blob {{ text }} }}\n'
                 f'  cmp: object(expression: "HEAD:composer.json") {{ ... on Blob {{ text }} }}\n'
-                f'}}'
+                f"}}"
             )
         return "query {\n" + "\n".join(parts) + "\n}"
 
-    def _fetchRaw(self, fullpath: str) -> tuple[str | None, str | None, str | None, bool]:
+    def _fetchRaw(
+        self, fullpath: str
+    ) -> tuple[str | None, str | None, str | None, bool]:
         """
         Fallback via raw.githubusercontent. Retorna
         (npm_name, composer_name, branch, reachable). reachable=True quando o
@@ -3772,7 +4444,10 @@ class RepoManifestScanner:
         for branch in self.RAW_BRANCHES:
             npm_name = composer_name = None
             got_200 = False
-            for file, setter in (("package.json", "npm"), ("composer.json", "composer")):
+            for file, setter in (
+                ("package.json", "npm"),
+                ("composer.json", "composer"),
+            ):
                 url = self.RAW_URL.format(fullpath=fullpath, branch=branch, file=file)
                 try:
                     resp = http_get(url, timeout=20)
@@ -3787,7 +4462,9 @@ class RepoManifestScanner:
                     else:
                         composer_name = name
                 elif resp.status_code == 404:
-                    reachable = True  # servidor respondeu; arquivo só não existe nessa branch
+                    reachable = (
+                        True  # servidor respondeu; arquivo só não existe nessa branch
+                    )
             if got_200:
                 return npm_name, composer_name, branch, True
         return None, None, None, reachable
@@ -3805,15 +4482,21 @@ class RepoManifestScanner:
 
         for attempt in range(self.RATE_LIMIT_MAX_RETRIES + 1):
             try:
-                resp = http_post(self.GRAPHQL_URL, headers=headers, json=payload, timeout=60)
+                resp = http_post(
+                    self.GRAPHQL_URL, headers=headers, json=payload, timeout=60
+                )
             except REQUEST_EXCEPTION as e:
                 print(f"[WARN] scan-manifests: GraphQL request failed: {e}")
                 return {}, list(batch), False  # transitório: cai no raw
 
             if resp.status_code == 429:
                 if attempt < self.RATE_LIMIT_MAX_RETRIES:
-                    delay = int(resp.headers.get("Retry-After", self.RATE_LIMIT_DEFAULT_DELAY))
-                    print(f"[WARN] scan-manifests: rate limited (429), waiting {delay}s...")
+                    delay = int(
+                        resp.headers.get("Retry-After", self.RATE_LIMIT_DEFAULT_DELAY)
+                    )
+                    print(
+                        f"[WARN] scan-manifests: rate limited (429), waiting {delay}s..."
+                    )
                     time.sleep(delay)
                     continue
                 return {}, [], True
@@ -3828,8 +4511,10 @@ class RepoManifestScanner:
                 msg = errors[0].get("message", "")
                 if "rate limit" in msg.lower() or "secondarily" in msg.lower():
                     if attempt < self.RATE_LIMIT_MAX_RETRIES:
-                        print(f"[WARN] scan-manifests: GraphQL rate limit, waiting "
-                              f"{self.RATE_LIMIT_DEFAULT_DELAY}s...")
+                        print(
+                            f"[WARN] scan-manifests: GraphQL rate limit, waiting "
+                            f"{self.RATE_LIMIT_DEFAULT_DELAY}s..."
+                        )
                         time.sleep(self.RATE_LIMIT_DEFAULT_DELAY)
                         continue
                     return {}, [], True
@@ -3846,7 +4531,9 @@ class RepoManifestScanner:
                 branch_ref = node.get("defaultBranchRef") or {}
                 branch = branch_ref.get("name")
                 npm_name = self._parseManifestName((node.get("pkg") or {}).get("text"))
-                composer_name = self._parseManifestName((node.get("cmp") or {}).get("text"))
+                composer_name = self._parseManifestName(
+                    (node.get("cmp") or {}).get("text")
+                )
                 results[fullpath] = (npm_name, composer_name, branch)
             return results, fallback, False
 
@@ -3860,17 +4547,24 @@ class RepoManifestScanner:
         # run; voltam só no próximo, pois continuam fora do cache).
         pending = db.getReposNeedingManifestScan(limit=10_000_000)
         if not pending:
-            print("[INFO] scan-manifests: no repositories pending a manifest scan; skipping")
+            print(
+                "[INFO] scan-manifests: no repositories pending a manifest scan; skipping"
+            )
             return
-        print(f"[INFO] scan-manifests: {len(pending)} repositories to scan "
-              f"({'GraphQL+raw' if self.token else 'raw-only (no token)'})")
+        print(
+            f"[INFO] scan-manifests: {len(pending)} repositories to scan "
+            f"({'GraphQL+raw' if self.token else 'raw-only (no token)'})"
+        )
 
         scanned = found_npm = found_composer = 0
         rate_limited = False
 
         for start in range(0, len(pending), self.GRAPHQL_BATCH_SIZE):
-            batch = [fp for fp in pending[start:start + self.GRAPHQL_BATCH_SIZE]
-                     if fp.count("/") == 1]
+            batch = [
+                fp
+                for fp in pending[start : start + self.GRAPHQL_BATCH_SIZE]
+                if fp.count("/") == 1
+            ]
 
             if self.token:
                 results, fallback, rl = self._fetchBatchGraphQL(batch)
@@ -3895,18 +4589,24 @@ class RepoManifestScanner:
 
             if scanned and scanned % 300 == 0:
                 db.conn.commit()
-                print(f"[INFO] scan-manifests: {scanned} scanned "
-                      f"({found_npm} npm, {found_composer} composer)")
+                print(
+                    f"[INFO] scan-manifests: {scanned} scanned "
+                    f"({found_npm} npm, {found_composer} composer)"
+                )
 
         db.conn.commit()
         started = datetime.now(timezone.utc).isoformat()
         db.updateSource(self.SOURCE_NAME, started, started, str(scanned))
 
         if rate_limited:
-            print(f"[WARN] scan-manifests: stopped on rate limit after {scanned} repos. "
-                  f"Run again later to continue.")
-        print(f"[INFO] scan-manifests: scanned {scanned} repositories "
-              f"({found_npm} with package.json name, {found_composer} with composer.json name)")
+            print(
+                f"[WARN] scan-manifests: stopped on rate limit after {scanned} repos. "
+                f"Run again later to continue."
+            )
+        print(
+            f"[INFO] scan-manifests: scanned {scanned} repositories "
+            f"({found_npm} with package.json name, {found_composer} with composer.json name)"
+        )
 
 
 class NpmPackages:
@@ -3921,6 +4621,7 @@ class NpmPackages:
     só responde "esse nome existe no npm?" e "quantos downloads?". Grava
     ecosystem='npm', package_url (npmjs/<npm_name>) e downloads.
     """
+
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
     SOURCE_NAME = "npm-packages"
@@ -3997,10 +4698,14 @@ class NpmPackages:
     def _resolveLatestBuildBranch(self) -> str | None:
         """Última branch 'build-*' via git ls-remote (uma chamada, sem clonar tudo)."""
         import subprocess
+
         try:
             out = subprocess.run(
                 ["git", "ls-remote", "--heads", self.DOWNLOAD_COUNTS_GIT, "build-*"],
-                capture_output=True, text=True, timeout=120, check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=True,
             ).stdout
         except (subprocess.SubprocessError, OSError, FileNotFoundError) as e:
             print(f"[WARN] npm: could not list download-counts branches: {e}")
@@ -4047,12 +4752,18 @@ class NpmPackages:
         db.cursor.execute(
             "SELECT fullpath, npm_name FROM repo_manifests WHERE npm_name IS NOT NULL"
         )
-        candidates = [(row[0], row[1]) for row in db.cursor.fetchall() if row[0] and row[1]]
+        candidates = [
+            (row[0], row[1]) for row in db.cursor.fetchall() if row[0] and row[1]
+        ]
         if not candidates:
-            print("[INFO] npm: no repositories with a package.json name in cache; "
-                  "run 'scan-manifests' first. Skipping")
+            print(
+                "[INFO] npm: no repositories with a package.json name in cache; "
+                "run 'scan-manifests' first. Skipping"
+            )
             return
-        print(f"[INFO] npm: {len(candidates)} repositories have a package.json name to validate")
+        print(
+            f"[INFO] npm: {len(candidates)} repositories have a package.json name to validate"
+        )
 
         # 2. Contagens de download da última branch build-* (clone shallow). O mapa é a
         #    prova de existência no npm e a fonte dos números — daí ler TODOS os shards.
@@ -4063,16 +4774,31 @@ class NpmPackages:
                 clone_dir = Path(tmp) / "download-counts"
                 try:
                     subprocess.run(
-                        ["git", "clone", "--depth=1", "--single-branch",
-                         "--branch", branch, self.DOWNLOAD_COUNTS_GIT, str(clone_dir)],
-                        capture_output=True, text=True, timeout=600, check=True,
+                        [
+                            "git",
+                            "clone",
+                            "--depth=1",
+                            "--single-branch",
+                            "--branch",
+                            branch,
+                            self.DOWNLOAD_COUNTS_GIT,
+                            str(clone_dir),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=600,
+                        check=True,
                     )
                     counts = self._loadDownloadCounts(clone_dir)
-                    print(f"[INFO] npm: loaded {len(counts)} download counts from {branch}")
+                    print(
+                        f"[INFO] npm: loaded {len(counts)} download counts from {branch}"
+                    )
                 except (subprocess.SubprocessError, OSError) as e:
                     print(f"[WARN] npm: failed to clone download-counts@{branch}: {e}")
         if not counts:
-            print("[WARN] npm: no download-counts available to validate names; skipping")
+            print(
+                "[WARN] npm: no download-counts available to validate names; skipping"
+            )
             return
 
         # 3. Mapa autoritativo pacote -> repositório (registry.npmjs.org), restrito aos
@@ -4090,8 +4816,10 @@ class NpmPackages:
         ]
         needed_names = {npm_name for _, npm_name in candidates}
         needed_names.update(name for _, name in existing_npm if name)
-        print(f"[INFO] npm: resolving canonical repo for {len(needed_names)} package names "
-              f"(npm registry, cached)")
+        print(
+            f"[INFO] npm: resolving canonical repo for {len(needed_names)} package names "
+            f"(npm registry, cached)"
+        )
         known_repo = self._buildKnownRepoMap(db, needed_names)
 
         # 4. Reset retroativo: limpa o enriquecimento npm de repos já varridos. Os
@@ -4099,7 +4827,9 @@ class NpmPackages:
         #    antiga voltam a 'github'. Repos ainda não varridos não são tocados.
         reset = db.resetScannedPackageEnrichment("npm")
         if reset:
-            print(f"[INFO] npm: reset {reset} previously-enriched repos (will reconfirm valid ones)")
+            print(
+                f"[INFO] npm: reset {reset} previously-enriched repos (will reconfirm valid ones)"
+            )
 
         # 5. Scrub retroativo: repos ainda marcados npm cujo pacote pertence, segundo o
         #    registry, a OUTRO repositório (ex.: grafana/grafana-image-renderer com
@@ -4111,11 +4841,17 @@ class NpmPackages:
                 if not name:
                     continue
                 owner = known_repo.get(name)
-                if owner and owner != fullpath and db.resetRepoToGithub(fullpath, "npm"):
+                if (
+                    owner
+                    and owner != fullpath
+                    and db.resetRepoToGithub(fullpath, "npm")
+                ):
                     scrubbed += 1
             if scrubbed:
                 db.conn.commit()
-                print(f"[INFO] npm: scrubbed {scrubbed} repos mis-tagged with another repo's package")
+                print(
+                    f"[INFO] npm: scrubbed {scrubbed} repos mis-tagged with another repo's package"
+                )
 
         # 6. Enriquecimento: só nomes presentes no download-counts (publicados no npm) e
         #    cujo repositório conhecido (se houver) seja este mesmo repo.
@@ -4140,9 +4876,17 @@ class NpmPackages:
         db.conn.commit()
 
         started = datetime.now(timezone.utc).isoformat()
-        db.updateSource(self.SOURCE_NAME, started, started, branch or "", base_release_file=branch or "")
-        print(f"[INFO] npm: enriched {enriched} repositories with npm package metadata "
-              f"({rejected} rejected by package->repo guard, {scrubbed} scrubbed retroactively)")
+        db.updateSource(
+            self.SOURCE_NAME,
+            started,
+            started,
+            branch or "",
+            base_release_file=branch or "",
+        )
+        print(
+            f"[INFO] npm: enriched {enriched} repositories with npm package metadata "
+            f"({rejected} rejected by package->repo guard, {scrubbed} scrubbed retroactively)"
+        )
 
 
 class PackagistPackages:
@@ -4157,6 +4901,7 @@ class PackagistPackages:
        pacote existe e obter .package.downloads.total.
     2. Em um 200, grava ecosystem='packagist', package_url e downloads.
     """
+
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
     SOURCE_NAME = "packagist"
@@ -4177,21 +4922,31 @@ class PackagistPackages:
               AND COALESCE(r.ecosystem, 'github') != 'npm'
             """
         )
-        candidates = [(row[0], row[1]) for row in db.cursor.fetchall() if row[0] and row[1]]
+        candidates = [
+            (row[0], row[1]) for row in db.cursor.fetchall() if row[0] and row[1]
+        ]
 
         # Reset retroativo (sem rede): repos já varridos marcados 'packagist' pela lógica
         # antiga mas SEM composer.json raiz não são pacotes Packagist -> voltam a 'github'.
         # (Os que falham a validação na API são revertidos por-repo no 404, abaixo.)
-        reset = db.resetScannedPackageEnrichment("packagist", missing_name_column="composer_name")
+        reset = db.resetScannedPackageEnrichment(
+            "packagist", missing_name_column="composer_name"
+        )
         if reset:
-            print(f"[INFO] packagist: reset {reset} previously-enriched repos without composer.json")
+            print(
+                f"[INFO] packagist: reset {reset} previously-enriched repos without composer.json"
+            )
 
         if not candidates:
-            print("[INFO] packagist: no repositories with a composer.json name in cache; "
-                  "run 'scan-manifests' first. Skipping")
+            print(
+                "[INFO] packagist: no repositories with a composer.json name in cache; "
+                "run 'scan-manifests' first. Skipping"
+            )
             db.conn.commit()
             return
-        print(f"[INFO] packagist: {len(candidates)} repositories have a composer.json name to validate")
+        print(
+            f"[INFO] packagist: {len(candidates)} repositories have a composer.json name to validate"
+        )
 
         enriched = 0
         for i, (fullpath, name) in enumerate(candidates, 1):
@@ -4216,13 +4971,17 @@ class PackagistPackages:
 
             if i % 200 == 0:
                 db.conn.commit()
-                print(f"[INFO] packagist: processed {i}/{len(candidates)} packages ({enriched} enriched)")
+                print(
+                    f"[INFO] packagist: processed {i}/{len(candidates)} packages ({enriched} enriched)"
+                )
             time.sleep(0.05)  # educado com a API pública do Packagist
         db.conn.commit()
 
         started = datetime.now(timezone.utc).isoformat()
         db.updateSource(self.SOURCE_NAME, started, started, str(len(candidates)))
-        print(f"[INFO] packagist: enriched {enriched} repositories with Packagist metadata")
+        print(
+            f"[INFO] packagist: enriched {enriched} repositories with Packagist metadata"
+        )
 
 
 class OsvNpmPackages:
@@ -4240,6 +4999,7 @@ class OsvNpmPackages:
     CVEs já existentes (cveExists); CVEs ausentes ou sem repositório relacionado são
     ignoradas, e nenhuma CVE nova é criada.
     """
+
     PROJECT_ROOT = Path(__file__).parent.parent.absolute()
     DATA_DIR = PROJECT_ROOT / "data"
     SOURCE_NAME = "osv-npm"
@@ -4322,30 +5082,52 @@ class OsvNpmPackages:
 
                 if scanned % 2000 == 0:
                     db.conn.commit()
-                    print(f"[INFO] osv-npm: scanned {scanned} GHSA advisories "
-                          f"({matched} CVE matches, {overridden} repo names overridden)")
+                    print(
+                        f"[INFO] osv-npm: scanned {scanned} GHSA advisories "
+                        f"({matched} CVE matches, {overridden} repo names overridden)"
+                    )
 
         db.conn.commit()
         dest.unlink(missing_ok=True)
 
         started = datetime.now(timezone.utc).isoformat()
         db.updateSource(self.SOURCE_NAME, started, started, "")
-        print(f"[INFO] osv-npm: read {scanned} GHSA advisories "
-              f"({ambiguous} skipped as ambiguous), {matched} CVE matches, "
-              f"{overridden} repository npm names overridden. "
-              f"Run 'npm' next to enrich them.")
+        print(
+            f"[INFO] osv-npm: read {scanned} GHSA advisories "
+            f"({ambiguous} skipped as ambiguous), {matched} CVE matches, "
+            f"{overridden} repository npm names overridden. "
+            f"Run 'npm' next to enrich them."
+        )
 
 
 def main() -> None:
     import argparse
     import os
-    
+
     parser = argparse.ArgumentParser(
         description="CVE Database Tool (ingest CVEs, verify repos, and generate DB manifest)"
     )
     parser.add_argument(
         "command",
-        choices=["cves", "cves-ids", "repos", "advisories", "pocs", "nuclei", "wordpress", "scan-manifests", "osv-npm", "npm", "packagist", "update-fixes", "manifest", "all"],
+        choices=[
+            "cves",
+            "cves-ids",
+            "repos",
+            "advisories",
+            "pocs",
+            "nuclei",
+            "wordpress",
+            "scan-manifests",
+            "osv-npm",
+            "npm",
+            "packagist",
+            "kev",
+            "wordfence-nuclei",
+            "missing-templates",
+            "update-fixes",
+            "manifest",
+            "all",
+        ],
         nargs="?",
         default="cves",
         help=(
@@ -4365,100 +5147,96 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--cve-ids",
-        default="",
-        help="Comma-separated CVE IDs for cves-ids command"
+        "--cve-ids", default="", help="Comma-separated CVE IDs for cves-ids command"
     )
     parser.add_argument(
         "--github-token",
         default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub token for GraphQL verification (prefer GITHUB_TOKEN env var in CI)"
+        help="GitHub token for GraphQL verification (prefer GITHUB_TOKEN env var in CI)",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
         default=100,
-        help="Batch size for repository verification (default: 100)"
+        help="Batch size for repository verification (default: 100)",
     )
     parser.add_argument(
         "--max-cves",
         type=int,
         default=None,
-        help="Limit number of CVEs imported in cves/all mode (useful for smoke tests)"
+        help="Limit number of CVEs imported in cves/all mode (useful for smoke tests)",
     )
     parser.add_argument(
         "--min-pending-repos",
         type=int,
         default=0,
-        help="Stop CVE import early after discovering this many pending GitHub repositories"
+        help="Stop CVE import early after discovering this many pending GitHub repositories",
     )
     parser.add_argument(
         "--require-complete-cve",
         action="store_true",
-        help="Only import CVEs that have score, CWE, affected product, repository, commit and exploit"
+        help="Only import CVEs that have score, CWE, affected product, repository, commit and exploit",
     )
     parser.add_argument(
         "--target-complete-cves",
         type=int,
         default=1,
-        help="How many complete CVEs to import when --require-complete-cve is enabled (default: 1)"
+        help="How many complete CVEs to import when --require-complete-cve is enabled (default: 1)",
     )
     parser.add_argument(
         "--max-deltas",
         type=int,
         default=5,
-        help="Maximum number of recent delta releases to scan in force-delta complete mode"
+        help="Maximum number of recent delta releases to scan in force-delta complete mode",
     )
     parser.add_argument(
         "--force-delta",
         action="store_true",
-        help="Use latest delta package on first cves run instead of full package"
+        help="Use latest delta package on first cves run instead of full package",
     )
     parser.add_argument(
         "--year",
         type=int,
         default=None,
-        help="Import only CVEs from a specific year in first full run (e.g. 1999)"
+        help="Import only CVEs from a specific year in first full run (e.g. 1999)",
     )
     parser.add_argument(
         "--year-auto",
         action="store_true",
-        help="On first full run, import only one year per execution and persist progress to next year"
+        help="On first full run, import only one year per execution and persist progress to next year",
     )
     parser.add_argument(
         "--db-dir",
         default="public/db",
-        help="Directory containing DB files for manifest generation (default: public/db)"
+        help="Directory containing DB files for manifest generation (default: public/db)",
     )
     parser.add_argument(
         "--db-file",
         default="source_com_repositorios.sqlite",
-        help="Base sqlite filename used by manifest generator (default: source_com_repositorios.sqlite)"
+        help="Base sqlite filename used by manifest generator (default: source_com_repositorios.sqlite)",
     )
     parser.add_argument(
         "--manifest-output",
         default=None,
-        help="Optional explicit output path for manifest.json"
+        help="Optional explicit output path for manifest.json",
     )
     parser.add_argument(
         "--manifest-base-url",
         default="/db",
-        help="Base URL prefix in manifest source URLs (default: /db)"
+        help="Base URL prefix in manifest source URLs (default: /db)",
     )
     parser.add_argument(
-        "--manifest-version",
-        default=None,
-        help="Optional explicit manifest version"
+        "--manifest-version", default=None, help="Optional explicit manifest version"
     )
     parser.add_argument(
         "--compress-gzip",
         action="store_true",
-        help="Generate .gz from base sqlite file if missing"
+        help="Generate .gz from base sqlite file if missing",
     )
     parser.add_argument(
         "--full",
         action="store_true",
-        help="Force a full re-scan for the advisories command (backfill: create advisory-only CVEs missing from the DB instead of incremental)"
+        help="Force a full re-scan for the advisories command (backfill: create advisory-only CVEs missing from the DB instead of incremental)",
     )
 
     args = parser.parse_args()
@@ -4479,7 +5257,7 @@ def main() -> None:
 
     if args.github_token and args.github_token != os.environ.get("GITHUB_TOKEN"):
         print("[WARN] Avoid passing token by CLI in CI. Prefer GITHUB_TOKEN env var.")
-    
+
     if args.command in ["cves", "all"]:
         print("[INFO] Getting CVES database https://github.com/CVEProject/cvelistV5")
         CVElistV5().run(
@@ -4498,73 +5276,112 @@ def main() -> None:
             raise SystemExit("[ERROR] --cve-ids is required for cves-ids command")
         cve_ids = [item.strip() for item in args.cve_ids.split(",") if item.strip()]
         CVElistV5().runByIds(cve_ids)
-    
+
     if args.command in ["repos", "all"]:
         if not args.github_token:
             print("[ERROR] GitHub token required for repository verification.")
             print("        Set GITHUB_TOKEN env var or use --github-token argument")
             return
-        
+
         print("[INFO] Verifying GitHub repositories...")
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
-        
+
         verifier = GitHubRepositoryVerifier(args.github_token)
         verifier.run(db, batch_size=args.batch_size)
 
         db.conn.close()
 
     if args.command in ["advisories", "all"]:
-        print("[INFO] Enriching CVEs from GitHub Advisory Database (github/advisory-database)...")
+        print(
+            "[INFO] Enriching CVEs from GitHub Advisory Database (github/advisory-database)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         GitHubAdvisory().run(db, force_full=args.full)
         db.conn.close()
 
     if args.command in ["pocs", "all"]:
-        print("[INFO] Enriching exploit fields from PoC-in-GitHub (nomi-sec/PoC-in-GitHub)...")
+        print(
+            "[INFO] Enriching exploit fields from PoC-in-GitHub (nomi-sec/PoC-in-GitHub)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         PoCInGitHub().run(db)
         db.conn.close()
 
     if args.command in ["nuclei", "all"]:
-        print("[INFO] Enriching Nuclei templates (projectdiscovery/nuclei-templates)...")
+        print(
+            "[INFO] Enriching Nuclei templates (projectdiscovery/nuclei-templates)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         NucleiTemplates().run(db, force_full=args.full)
         db.conn.close()
 
+    if args.command in ["kev", "all"]:
+        print("[INFO] Enriching with CISA KEV catalog...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        KevEnrichment().run(db)
+        db.conn.close()
+
+    if args.command in ["wordfence-nuclei", "all"]:
+        print(
+            "[INFO] Enriching with Wordfence Nuclei templates (topscoder/nuclei-wordfence-cve)..."
+        )
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        WordfenceNucleiTemplates().run(db)
+        db.conn.close()
+
+    if args.command in ["missing-templates", "all"]:
+        print("[INFO] Enriching with missing nuclei template indicator...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        MissingNucleiTemplates().run(db)
+        db.conn.close()
+
     if args.command in ["wordpress", "all"]:
-        print("[INFO] Enriching WordPress plugins with install/download metrics (rix4uni/wordpress-plugins)...")
+        print(
+            "[INFO] Enriching WordPress plugins with install/download metrics (rix4uni/wordpress-plugins)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         WordPressMetadata().run(db)
         db.conn.close()
 
     if args.command in ["scan-manifests", "all"]:
-        print("[INFO] Scanning repositories' default-branch manifests (package.json/composer.json)...")
+        print(
+            "[INFO] Scanning repositories' default-branch manifests (package.json/composer.json)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         RepoManifestScanner(token=args.github_token).run(db)
         db.conn.close()
 
     if args.command in ["osv-npm", "all"]:
-        print("[INFO] Overriding repository npm names from the OSV npm feed (CVE->package)...")
+        print(
+            "[INFO] Overriding repository npm names from the OSV npm feed (CVE->package)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         OsvNpmPackages().run(db)
         db.conn.close()
 
     if args.command in ["npm", "all"]:
-        print("[INFO] Enriching repositories with npm package metadata (nice-registry)...")
+        print(
+            "[INFO] Enriching repositories with npm package metadata (nice-registry)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         NpmPackages().run(db)
         db.conn.close()
 
     if args.command in ["packagist", "all"]:
-        print("[INFO] Enriching repositories with Packagist package metadata (OSV + Packagist API)...")
+        print(
+            "[INFO] Enriching repositories with Packagist package metadata (OSV + Packagist API)..."
+        )
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         PackagistPackages().run(db)
@@ -4574,9 +5391,9 @@ def main() -> None:
         print("[INFO] Updating commits_fix for all repositories...")
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
-        
+
         db.updateAllRepositoriesCommitsFix()
-        
+
         db.conn.close()
 
     if args.command in ["manifest", "all"]:
@@ -4590,6 +5407,7 @@ def main() -> None:
             compress_gzip=args.compress_gzip,
             db_file_name=args.db_file,
         )
+
 
 if __name__ == "__main__":
     main()

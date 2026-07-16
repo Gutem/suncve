@@ -123,7 +123,7 @@ export function FiltersPanel({
 
   const handleBooleanFilter = useCallback(
     (
-      key: 'hasExploit' | 'hasRepository' | 'hasCommitFix' | 'hasNuclei',
+      key: 'hasExploit' | 'hasRepository' | 'hasCommitFix' | 'hasNuclei' | 'hasKev' | 'hasMissingTemplate',
       value: boolean | null
     ) => {
       onFiltersChange({ ...filters, [key]: value });
@@ -436,6 +436,20 @@ export function FiltersPanel({
                   onChange={(v) => handleBooleanFilter('hasNuclei', v)}
                 />
               </div>
+              <div className='flex items-center justify-between'>
+                <span className='text-sm'>{t('hasKev')}</span>
+                <TriStateSwitch
+                  value={filters.hasKev}
+                  onChange={(v) => handleBooleanFilter('hasKev', v)}
+                />
+              </div>
+              <div className='flex items-center justify-between'>
+                <span className='text-sm'>{t('hasMissingTemplate')}</span>
+                <TriStateSwitch
+                  value={filters.hasMissingTemplate}
+                  onChange={(v) => handleBooleanFilter('hasMissingTemplate', v)}
+                />
+              </div>
             </div>
           </div>
 
@@ -676,6 +690,9 @@ function countActiveFilters(filters: SearchFilters): number {
   if (filters.hasExploit !== null) count++;
   if (filters.hasRepository !== null) count++;
   if (filters.hasCommitFix !== null) count++;
+  if (filters.hasNuclei !== null) count++;
+  if (filters.hasKev !== null) count++;
+  if (filters.hasMissingTemplate !== null) count++;
   if (filters.languages.length > 0) count++;
   if (filters.starsMin !== null || filters.starsMax !== null) count++;
   if (filters.repoSizeMin !== null || filters.repoSizeMax !== null) count++;
