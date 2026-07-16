@@ -238,6 +238,14 @@ export function ResultsTable({
                             <IconShieldExclamation className='h-3 w-3' />
                           </Badge>
                         )}
+                        {cve.missing_nuclei_template && (
+                          <Badge
+                            variant='outline'
+                            className='border-dashed border-purple-500/50 px-1.5 text-purple-600 dark:text-purple-400'
+                          >
+                            <IconTargetArrow className='h-3 w-3 opacity-50' />
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className='overflow-hidden'>

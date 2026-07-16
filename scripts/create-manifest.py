@@ -860,6 +860,15 @@ class databaseSQLite:
             except sqlite3.OperationalError:
                 pass  # Coluna já existe
 
+        # Migração: missing template indicator (edoardottt/missing-cve-nuclei-templates)
+        for column_ddl in (
+            "ALTER TABLE cves ADD COLUMN missing_nuclei_template BOOLEAN DEFAULT 0",
+        ):
+            try:
+                self.cursor.execute(column_ddl)
+            except sqlite3.OperationalError:
+                pass  # Coluna já existe
+
         # 2. Tabela de Scores (1 CVE -> N Scores)
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS cve_scores (
@@ -2589,7 +2598,16 @@ class CVElistV5:
         # Description e Title
         descriptions = cna.get("descriptions", [])
         description = descriptions[0].get("value") if descriptions else None
-        title = cna.get("title") or "No Title Found"
+        title = cna.get("title") or ""
+
+        if not title and description:
+            title = description.strip()[:140]
+            if len(description) > 140:
+                title = title.rsplit(" ", 1)[0]
+            if not title.endswith("."):
+                title += "..."
+        if not title:
+            title = "No Title Found"
 
         # References
         references = [
@@ -4149,6 +4167,208 @@ class KevEnrichment:
         )
 
 
+class WordfenceNucleiTemplates:
+    """
+    Enriquece CVEs com templates Nuclei do repositório topscoder/nuclei-wordfence-cve.
+
+    Contém 77k+ templates WordPress gerados a partir do feed de inteligência do
+    Wordfence, organizados por ano em nuclei-templates/YYYY/CVE-YYYY-NNNNN-*.yaml.
+    Usa Git Trees API (não-recursiva) iterando por diretório de ano para evitar
+    o limite de 5MB da API recursiva (o repo tem 77k arquivos).
+
+    Cada template é adicionado ao list_nuclei da CVE com source='wordfence'.
+    """
+
+    REPO = "topscoder/nuclei-wordfence-cve"
+    BRANCH = "main"
+    SOURCE_NAME = "wordfence-nuclei"
+
+    _CVE_FILE_RE = re.compile(r"^(CVE-\d{4}-\d{4,})", re.IGNORECASE)
+
+    @staticmethod
+    def _getTree(repo: str, sha: str) -> dict | None:
+        url = f"https://api.github.com/repos/{repo}/git/trees/{sha}"
+        try:
+            resp = http_get(url, headers=_github_api_headers())
+            if resp.status_code != 200:
+                print(f"  [WARN] wordfence-nuclei: trees API HTTP {resp.status_code}")
+                return None
+            return resp.json()
+        except (REQUEST_EXCEPTION, ValueError) as e:
+            print(f"  [WARN] wordfence-nuclei: trees API failed: {e}")
+            return None
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        head_sha = github_branch_head_sha(self.REPO, self.BRANCH)
+        if not head_sha:
+            print(f"[WARN] wordfence-nuclei: could not resolve HEAD sha; skipping")
+            return
+
+        started = datetime.now(timezone.utc).isoformat()
+
+        root_tree = self._getTree(self.REPO, head_sha)
+        if not root_tree:
+            return
+
+        templates_sha = None
+        for node in root_tree.get("tree", []):
+            if node.get("path") == "nuclei-templates" and node.get("type") == "tree":
+                templates_sha = node["sha"]
+                break
+
+        if not templates_sha:
+            print("[WARN] wordfence-nuclei: nuclei-templates dir not found")
+            return
+
+        templates_tree = self._getTree(self.REPO, templates_sha)
+        if not templates_tree:
+            return
+
+        enriched = 0
+        total_templates = 0
+
+        for node in templates_tree.get("tree", []):
+            if node.get("type") != "tree":
+                continue
+
+            year_dir = node["path"]
+            year_sha = node["sha"]
+
+            year_tree = self._getTree(self.REPO, year_sha)
+            if not year_tree:
+                continue
+
+            cve_map: dict[str, list[dict]] = {}
+
+            for file_node in year_tree.get("tree", []):
+                if file_node.get("type") != "blob":
+                    continue
+
+                name = file_node["path"]
+                match = self._CVE_FILE_RE.match(name)
+                if not match:
+                    continue
+
+                cve_id = match.group(1).upper()
+                if not cve_id.startswith("CVE-"):
+                    continue
+
+                template_url = (
+                    f"https://raw.githubusercontent.com/{self.REPO}/{self.BRANCH}"
+                    f"/nuclei-templates/{year_dir}/{name}"
+                )
+
+                if cve_id not in cve_map:
+                    cve_map[cve_id] = []
+
+                cve_map[cve_id].append(
+                    {
+                        "template_id": Path(name).stem,
+                        "path": f"nuclei-templates/{year_dir}/{name}",
+                        "url": template_url,
+                        "source": "wordfence",
+                    }
+                )
+
+            year_enriched = 0
+            for cve_id, templates in cve_map.items():
+                if db.cveExists(cve_id) and db.addNucleiTemplates(cve_id, templates):
+                    year_enriched += 1
+
+            total_templates += sum(len(v) for v in cve_map.values())
+            enriched += year_enriched
+            db.conn.commit()
+            print(
+                f"  [INFO] wordfence-nuclei: year {year_dir} — "
+                f"{len(cve_map)} CVEs, {year_enriched} enriched"
+            )
+
+        print(
+            f"[INFO] wordfence-nuclei: {total_templates} templates, "
+            f"{enriched} CVEs enriched total"
+        )
+        db.updateSource(
+            self.SOURCE_NAME, started, started, head_sha, base_release_file=head_sha
+        )
+
+
+class MissingNucleiTemplates:
+    """
+    Enriquece CVEs com indicador de "template ausente" baseado na lista semanal do
+    repositorio edoardottt/missing-cve-nuclei-templates.
+
+    Contem 65k+ CVEs que NAO possuem template no repositorio oficial do Nuclei,
+    organizadas por ano em data/year/YYYY.txt.
+    Formato: [ CVE-YYYY-NNNNN ] [ vuln_type ] URL
+    """
+
+    BASE_URL = (
+        "https://raw.githubusercontent.com/edoardottt/"
+        "missing-cve-nuclei-templates/main/data/year"
+    )
+    SOURCE_NAME = "missing-nuclei-templates"
+
+    _CVE_LINE_RE = re.compile(r"\[ (CVE-\d{4}-\d{4,}) \]")
+
+    @staticmethod
+    def _parseCveIds(text: str) -> list[str]:
+        return [
+            m.group(1).upper()
+            for m in MissingNucleiTemplates._CVE_LINE_RE.finditer(text)
+        ]
+
+    def run(self, db: "databaseSQLite") -> None:
+        db.createTable()
+
+        started = datetime.now(timezone.utc).isoformat()
+        total_cves = 0
+        enriched = 0
+
+        for year in range(1999, datetime.now().year + 1):
+            url = f"{self.BASE_URL}/{year}.txt"
+            try:
+                resp = http_get(url, headers={"User-Agent": "SunCVE/1.0"}, timeout=30)
+                if resp.status_code == 404:
+                    continue
+                resp.raise_for_status()
+                text = resp.text
+            except Exception as e:
+                print(f"  [WARN] missing-templates: year {year} download failed: {e}")
+                continue
+
+            cve_ids = set(self._parseCveIds(text))
+            year_enriched = 0
+
+            for cve_id in cve_ids:
+                if db.cveExists(cve_id):
+                    db.cursor.execute(
+                        "UPDATE cves SET missing_nuclei_template = 1 WHERE cve_id = ?",
+                        (cve_id,),
+                    )
+                    year_enriched += 1
+
+            total_cves += len(cve_ids)
+            enriched += year_enriched
+            db.conn.commit()
+            print(
+                f"  [INFO] missing-templates: year {year} — "
+                f"{len(cve_ids)} CVEs listed, {year_enriched} in database"
+            )
+
+        print(
+            f"[INFO] missing-templates: {total_cves} CVEs missing template, "
+            f"{enriched} enriched in database"
+        )
+        db.updateSource(
+            self.SOURCE_NAME,
+            started,
+            started,
+            datetime.now(timezone.utc).isoformat(),
+        )
+
+
 class RepoManifestScanner:
     """
     Descobre o NOME canônico do pacote de cada repositório lendo o manifesto raiz
@@ -4901,6 +5121,9 @@ def main() -> None:
             "osv-npm",
             "npm",
             "packagist",
+            "kev",
+            "wordfence-nuclei",
+            "missing-templates",
             "update-fixes",
             "manifest",
             "all",
@@ -5101,6 +5324,22 @@ def main() -> None:
         db_path = CVElistV5.DATA_DIR / "source.sqlite"
         db = databaseSQLite(db_path)
         KevEnrichment().run(db)
+        db.conn.close()
+
+    if args.command in ["wordfence-nuclei", "all"]:
+        print(
+            "[INFO] Enriching with Wordfence Nuclei templates (topscoder/nuclei-wordfence-cve)..."
+        )
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        WordfenceNucleiTemplates().run(db)
+        db.conn.close()
+
+    if args.command in ["missing-templates", "all"]:
+        print("[INFO] Enriching with missing nuclei template indicator...")
+        db_path = CVElistV5.DATA_DIR / "source.sqlite"
+        db = databaseSQLite(db_path)
+        MissingNucleiTemplates().run(db)
         db.conn.close()
 
     if args.command in ["wordpress", "all"]:
